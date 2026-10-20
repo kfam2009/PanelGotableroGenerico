@@ -1,6 +1,7 @@
 """Runs on the client's PC. OBS is local or reached over ZeroTier; only score data goes to Render."""
 import argparse
 import html
+import io
 import ipaddress
 import json
 import logging
@@ -17,6 +18,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from core import Feed, OBS
+import core
 from continuous_video import ContinuousVideo
 from obs_control import GraphicControl,make_bridge,make_control_server
 from stream_source import NoPreview,StreamFrames,StreamPreview,srt_url
@@ -142,6 +144,20 @@ def local_server(feed,uplink,game,port):
             self.send_header('Access-Control-Allow-Methods','GET, OPTIONS')
             self.send_header('Access-Control-Allow-Private-Network','true')
             self.end_headers()
+        def do_POST(self):
+            # Calibration changes only from the panel served by this same reader.
+            if self.headers.get('Origin') not in (f'http://127.0.0.1:{self.server.server_port}',f'http://localhost:{self.server.server_port}'):self.send_error(403);return
+            if self.path!='/api/calibration':self.send_error(404);return
+            try:
+                length=int(self.headers.get('Content-Length','0'))
+                if not 0<length<=20000 or not self.headers.get('Content-Type','').startswith('application/json'):raise ValueError('Pedido invalido')
+                body=json.loads(self.rfile.read(length))
+                calibration=core.reader_module.reset_calibration() if body.get('reset') else core.reader_module.save_calibration(body)
+                with feed.lock:feed.confirmed.clear();feed.pending.clear();feed.last_samples.clear()
+                status,result=200,{'ok':True,'calibration':calibration}
+            except Exception as exc:status,result=400,{'error':str(exc) if isinstance(exc,ValueError) else 'No se pudo guardar la calibracion'}
+            data=json.dumps(result).encode()
+            self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
         def do_GET(self):
             origin=self.headers.get('Origin')
             if origin and origin not in allowed_origins:self.send_error(403);return
@@ -151,6 +167,12 @@ def local_server(feed,uplink,game,port):
             elif route=='/api/state':
                 state=feed.snapshot();state.update(game.snapshot());state['uplink']=uplink.message
                 data=json.dumps(state).encode();kind='application/json'
+            elif route=='/api/calibration':
+                data=json.dumps({'calibration':core.reader_module.current_calibration(),'calibrated':core.reader_module.CALIBRATED}).encode();kind='application/json'
+            elif route=='/frame.jpg':
+                with feed.lock:frame=feed.frame
+                if frame is None:self.send_error(503,'Sin imagen del tablero');return
+                out=io.BytesIO();frame.save(out,format='JPEG',quality=88);data=out.getvalue();kind='image/jpeg'
             elif route=='/board.png':
                 with feed.lock:data=feed.board
                 kind='image/png'
@@ -168,6 +190,8 @@ def local_server(feed,uplink,game,port):
                         with feed.lock:feed.lock.wait_for(lambda:feed.revision!=state['revision'],timeout=1)
                 except (OSError,ConnectionError):pass
                 return
+            elif route=='/calibrar':
+                data=(public/'calibrar.html').read_bytes();kind='text/html; charset=utf-8'
             elif route in ('/graphics.html','/styles.css','/script.js') or route.startswith('/assets/') and '..' not in route:
                 file=(public/route.lstrip('/')).resolve()
                 if not file.is_relative_to(public.resolve()) or not file.is_file():self.send_error(404);return

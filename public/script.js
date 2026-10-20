@@ -8,6 +8,7 @@ const params = new URLSearchParams(location.search);
 const liveMode = params.get('live') !== '0';
 const storageKey = 'panelgo-tablero-settings-v1';
 var switcherName = 'OBS';
+if (!['127.0.0.1','localhost'].includes(location.hostname)) document.getElementById('calibrateLink')?.remove();
 function savedSettings() { try { return JSON.parse(localStorage.getItem(storageKey) || '{}'); } catch { return {}; } }
 const state = {...defaults, ...savedSettings()};
 for (const [key,value] of params) if (key in defaults && (!liveMode || !liveKeys.includes(key))) state[key] = value;

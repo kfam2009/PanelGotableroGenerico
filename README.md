@@ -73,9 +73,20 @@ New-NetFirewallRule -DisplayName "Panel Go grafica" -Direction Inbound -Protocol
 
 `config.json` es privado y está excluido de Git. Los valores de ejemplo están en `client/config.example.json`.
 
+## Calibrar el tablero
+
+En el panel local, **Calibrar tablero ↗** abre `http://127.0.0.1:8771/calibrar`:
+
+1. **Zona del tablero:** en el cuadro completo, arrastrar un rectángulo alrededor del tablero para acercarlo. Esa zona también es la que muestra el monitor del panel.
+2. **Números:** elegir Reloj, Local, Visita y Período y arrastrar un rectángulo sobre los dígitos de cada uno. Después se puede mover cada esquina para seguir la perspectiva. Local y Visita admiten 1 a 3 dígitos; los dígitos apagados a la izquierda se ignoran.
+3. **LEDs:** elegir el color (rojo, ámbar, verde o blanco) y ajustar la sensibilidad. Los LEDs detectados se pintan de verde sobre la imagen.
+4. **Guardar y probar:** el lector usa la calibración al instante y muestra la lectura de cada grupo.
+
+La calibración se guarda en `client/calibration.json` (excluido de Git). **Volver a la calibración original** borra ese archivo. Para probar sin cámara, en el asistente se puede indicar un **video o foto del tablero** como origen; se reproduce en bucle.
+
 ## Alcance de la calibración
 
-La lectura está calibrada para un tablero y encuadre concretos a 1920×1080 (`client/reader.py`). El video SRT/RTSP se escala a 1920×1080 antes de leer, pero si cambia el encuadre, el zoom o el tablero, hay que recalibrar. Admite `MM:SS` y el formato `SS.T` del último minuto.
+El reconocimiento está pensado para tableros de LEDs de 7 segmentos. El video se escala a 1920×1080 antes de leer; si cambia el encuadre, el zoom o el tablero, hay que volver a calibrar. Sin calibración se usa la del tablero original de ejemplo. Admite `MM:SS` y el formato `SS.T` del último minuto.
 
 Cuando el tablero permanece visible con los dígitos apagados al menos dos segundos, el lector muestra **Local 0, Visita 0 y reloj 10:00**. Si se pierde la señal, se conservan los últimos datos y el lector reintenta solo.
 

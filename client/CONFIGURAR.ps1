@@ -39,7 +39,9 @@ if ($Switcher -eq 'vmix') {
     Write-Host 'En vMix: Settings > Outputs/NDI/SRT > Output 2 (o 3/4) > Source: la camara del tablero > SRT,' -ForegroundColor Cyan
     Write-Host 'Type: Listener, puerto 9000, H.264, 2500 kbps, 1920x1080.' -ForegroundColor Cyan
     $Config['board_mode'] = 'stream'
-    $Config['board_url'] = Ask 'Salida SRT del tablero (IP:puerto o srt://... o rtsp://...)' $(if ($Config['board_url']) { $Config['board_url'] } else { "${SrtHost}:9000" })
+    Write-Host 'Para probar sin vMix se puede poner la ruta de un video o una foto del tablero (C:\...\tablero.mp4).' -ForegroundColor Cyan
+    $Config['board_url'] = Ask 'Salida SRT del tablero (IP:puerto, srt://, rtsp:// o archivo)' $(if ($Config['board_url']) { $Config['board_url'] } else { "${SrtHost}:9000" })
+    $Config['board_url'] = "$($Config['board_url'])".Trim('"')
     $Config['vmix_overlay'] = [int](Ask 'Canal de overlay de vMix para el marcador (1 a 4)' $Config['vmix_overlay'])
     $Game = Ask 'Monitor de programa: salida SRT del programa de vMix (IP:puerto, Enter: sin monitor)' $Config['game_url']
     $Config['game_url'] = if ($Game) { $Game } else { '' }
@@ -47,11 +49,11 @@ if ($Switcher -eq 'vmix') {
     Write-Host ''
     Write-Host 'Como llega la camara del tablero:'
     Write-Host '1) Fuente de OBS (captura desde OBS)'
-    Write-Host '2) Video SRT o RTSP (camara IP o salida SRT)'
+    Write-Host '2) Video SRT o RTSP (camara IP o salida SRT), o un archivo de video/foto para probar'
     $Board = Ask 'Opcion' $(if ($Config['board_mode'] -eq 'stream') { '2' } else { '1' })
     if ($Board -eq '2') {
         $Config['board_mode'] = 'stream'
-        $Config['board_url'] = Ask 'Direccion del video del tablero (IP:puerto para SRT, o rtsp://...)' $Config['board_url']
+        $Config['board_url'] = "$(Ask 'Video del tablero (IP:puerto para SRT, rtsp://..., o ruta de un archivo)' $Config['board_url'])".Trim('"')
     } else {
         $Config['board_mode'] = 'obs'
         $Config['source'] = Ask 'Nombre exacto de la fuente del tablero en OBS' $Config['source']

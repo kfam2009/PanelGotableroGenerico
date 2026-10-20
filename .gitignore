@@ -17,3 +17,5 @@ __pycache__/
 proceso.json
 *.zip
 .DS_Store
+client/calibration.json
+client/calibration.tmp

@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Calibrar tablero · Panel Go</title>
+<style>
+:root{--bg:#111;--panel:#1c1c1c;--line:#333;--text:#f7f7f4;--muted:#9a9a96;--accent:#e5383b;--ok:#3ccf7e;--warn:#f2b632;
+  --clock:#4cc9f0;--homeScore:#f72585;--awayScore:#ffd166;--period:#7bf1a8;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.4 "Arial Narrow","Roboto Condensed",Arial,sans-serif}
+.page{display:grid;grid-template-columns:330px 1fr;min-height:100vh}
+aside{background:var(--panel);border-right:1px solid var(--line);padding:18px;overflow:auto}
+h1{font-size:20px;margin:0 0 2px;letter-spacing:.02em}
+.sub{color:var(--muted);margin:0 0 16px}
+.step{border-top:1px solid var(--line);padding:14px 0}
+.step h2{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 8px}
+.step p{margin:0 0 10px;color:var(--muted);font-size:13px}
+button,select{font:inherit;color:var(--text);background:#262626;border:1px solid #3a3a3a;border-radius:8px;padding:8px 10px;cursor:pointer}
+button:hover{border-color:#555}
+button.primary{background:var(--accent);border-color:var(--accent);font-weight:bold;width:100%;padding:11px}
+button.armed{outline:2px solid var(--text);outline-offset:1px}
+.groups{display:grid;gap:8px}
+.group{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;padding:8px;border:1px solid #2e2e2e;border-radius:10px;background:#202020}
+.group .name{display:flex;align-items:center;gap:8px;font-weight:bold}
+.dot{width:10px;height:10px;border-radius:50%}
+.group .read{font:bold 20px/1 "Courier New",monospace;min-width:58px;text-align:right}
+.group .read.stale{opacity:.35}
+.group select{padding:6px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+label.inline{display:flex;gap:8px;align-items:center;color:var(--muted)}
+input[type=range]{width:100%}
+.status{margin-top:10px;font-size:13px;color:var(--muted);min-height:18px}
+.status.ok{color:var(--ok)}.status.err{color:var(--accent)}
+main{position:relative;display:flex;flex-direction:column;min-width:0}
+.toolbar{display:flex;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line);background:#161616;flex-wrap:wrap}
+.toolbar .hint{color:var(--muted);flex:1;min-width:200px}
+.stage{flex:1;display:flex;align-items:center;justify-content:center;padding:14px;min-height:0}
+canvas{max-width:100%;max-height:calc(100vh - 80px);background:#000;border-radius:6px;touch-action:none;cursor:crosshair}
+a{color:var(--text)}
+@media (max-width:820px){.page{grid-template-columns:1fr}aside{border-right:0;border-bottom:1px solid var(--line)}canvas{max-height:60vh}}
+</style>
+</head>
+<body>
+<div class="page">
+<aside>
+  <h1>Calibrar tablero</h1>
+  <p class="sub">Marcá con el mouse dónde está cada número del tablero. <a href="/">Volver al panel</a></p>
+
+  <section class="step">
+    <h2>1 · Zona del tablero</h2>
+    <p>Arrastrá un rectángulo alrededor del tablero en el cuadro completo para acercarlo.</p>
+    <div class="row"><button id="markView">Marcar zona</button><button id="toggleView">Ver cuadro completo</button></div>
+  </section>
+
+  <section class="step">
+    <h2>2 · Números</h2>
+    <p>Elegí un grupo y arrastrá un rectángulo que cubra todos sus dígitos. Después podés mover cada esquina para seguir la perspectiva.</p>
+    <div class="groups" id="groups"></div>
+  </section>
+
+  <section class="step">
+    <h2>3 · LEDs</h2>
+    <div class="row" style="margin-bottom:10px">
+      <label class="inline">Color <select id="color"><option value="red">Rojo</option><option value="amber">Ámbar / amarillo</option><option value="green">Verde</option><option value="white">Blanco</option></select></label>
+      <label class="inline"><input type="checkbox" id="showMask" checked> Ver LEDs detectados</label>
+    </div>
+    <label class="inline" style="display:block">Sensibilidad <span id="thresholdValue"></span>
+      <input type="range" id="threshold" min="60" max="250" step="5"></label>
+    <p>Los LEDs encendidos se pintan de verde. Si no aparecen, bajá el valor; si se pinta el fondo, subilo.</p>
+  </section>
+
+  <section class="step">
+    <button class="primary" id="save">Guardar y probar</button>
+    <div class="row" style="margin-top:8px"><button id="reset">Volver a la calibración original</button></div>
+    <div class="status" id="status"></div>
+  </section>
+</aside>
+<main>
+  <div class="toolbar">
+    <span class="hint" id="hint">Cargando imagen del tablero…</span>
+    <label class="inline"><input type="checkbox" id="freeze"> Congelar imagen</label>
+  </div>
+  <div class="stage"><canvas id="canvas" width="1280" height="720"></canvas></div>
+</main>
+</div>
+<script>
+(() => {
+const FRAME_W=1920, FRAME_H=1080;
+const GROUPS=[
+  {key:'clock',label:'Reloj',digits:[4]},
+  {key:'homeScore',label:'Local',digits:[1,2,3]},
+  {key:'awayScore',label:'Visita',digits:[1,2,3]},
+  {key:'period',label:'Período',digits:[1]},
+];
+const colorOf=k=>getComputedStyle(document.documentElement).getPropertyValue('--'+k).trim();
+const canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d',{willReadFrequently:true});
+const hint=document.getElementById('hint'),statusBox=document.getElementById('status');
+const image=new Image();let imageReady=false;
+let cal={view:[1360,350,1700,610],groups:{},color:'red',threshold:180};
+let showFull=false, mode=null, drag=null, live={};
+
+function setStatus(text,kind){statusBox.textContent=text;statusBox.className='status'+(kind?' '+kind:'');}
+function viewRect(){return showFull?[0,0,FRAME_W,FRAME_H]:cal.view;}
+function fitCanvas(){
+  const [x0,y0,x1,y1]=viewRect(),w=x1-x0,h=y1-y0;
+  const scale=Math.min(1600/w,900/h);
+  canvas.width=Math.round(w*scale);canvas.height=Math.round(h*scale);
+}
+function toCanvas([x,y]){const [x0,y0,x1,y1]=viewRect();return [(x-x0)*canvas.width/(x1-x0),(y-y0)*canvas.height/(y1-y0)];}
+function toFrame(cx,cy){const [x0,y0,x1,y1]=viewRect();return [x0+cx*(x1-x0)/canvas.width,y0+cy*(y1-y0)/canvas.height];}
+function eventPoint(e){const r=canvas.getBoundingClientRect();return toFrame((e.clientX-r.left)*canvas.width/r.width,(e.clientY-r.top)*canvas.height/r.height);}
+const clampX=v=>Math.max(0,Math.min(FRAME_W,v)),clampY=v=>Math.max(0,Math.min(FRAME_H,v));
+
+function isLit(r,g,b){
+  const t=cal.threshold;
+  if(cal.color==='amber')return r>t&&g>t*.45&&r>b*1.4&&g>b*1.1;
+  if(cal.color==='green')return g>t&&g>r*1.1&&g>b*1.05;
+  if(cal.color==='white')return r>t&&g>t&&b>t;
+  return r>t&&r>g*1.03&&r>b*1.08;
+}
+function lerp(a,b,t){return [a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t];}
+
+function draw(){
+  fitCanvasIfNeeded();
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  if(imageReady){
+    const [x0,y0,x1,y1]=viewRect();
+    ctx.imageSmoothingEnabled=!showFull?false:true;
+    ctx.drawImage(image,x0,y0,x1-x0,y1-y0,0,0,canvas.width,canvas.height);
+    if(document.getElementById('showMask').checked&&!showFull){
+      const data=ctx.getImageData(0,0,canvas.width,canvas.height),p=data.data;
+      for(let i=0;i<p.length;i+=4){if(isLit(p[i],p[i+1],p[i+2])){p[i]=40;p[i+1]=255;p[i+2]=120;}}
+      ctx.putImageData(data,0,0);
+    }
+  }
+  if(showFull){
+    const [a,b]=[toCanvas([cal.view[0],cal.view[1]]),toCanvas([cal.view[2],cal.view[3]])];
+    ctx.strokeStyle='#fff';ctx.setLineDash([8,6]);ctx.lineWidth=2;ctx.strokeRect(a[0],a[1],b[0]-a[0],b[1]-a[1]);ctx.setLineDash([]);
+  }
+  for(const g of GROUPS){
+    const group=cal.groups[g.key];if(!group)continue;
+    const q=group.quad.map(toCanvas),color=colorOf(g.key);
+    ctx.strokeStyle=color;ctx.lineWidth=2;ctx.beginPath();q.forEach((p,i)=>i?ctx.lineTo(...p):ctx.moveTo(...p));ctx.closePath();ctx.stroke();
+    ctx.globalAlpha=.6;ctx.lineWidth=1;
+    for(let i=1;i<group.digits;i++){const t=i/group.digits,a=lerp(q[0],q[1],t),b=lerp(q[3],q[2],t);ctx.beginPath();ctx.moveTo(...a);ctx.lineTo(...b);ctx.stroke();}
+    ctx.globalAlpha=1;
+    if(!showFull)q.forEach(p=>{ctx.fillStyle=color;ctx.fillRect(p[0]-6,p[1]-6,12,12);ctx.strokeStyle='#000';ctx.strokeRect(p[0]-6,p[1]-6,12,12);});
+    const digits=live.digits||{},names=digitNames(g.key,group.digits);
+    ctx.font='bold 15px Arial';ctx.textAlign='center';
+    names.forEach((n,i)=>{const t=(i+.5)/group.digits,top=lerp(q[0],q[1],t);const v=digits[n];ctx.fillStyle=v==null?'#999':'#fff';ctx.fillText(v==null?'·':v,top[0],top[1]-8);});
+    ctx.textAlign='left';ctx.fillStyle=color;ctx.font='bold 13px Arial';ctx.fillText(g.label,q[3][0],q[3][1]+16);
+  }
+  if(drag&&drag.kind==='rect'){
+    const a=toCanvas(drag.start),b=toCanvas(drag.end);
+    ctx.strokeStyle=mode==='view'?'#fff':colorOf(mode);ctx.setLineDash([6,4]);ctx.lineWidth=2;ctx.strokeRect(a[0],a[1],b[0]-a[0],b[1]-a[1]);ctx.setLineDash([]);
+  }
+}
+let lastFit='';
+function fitCanvasIfNeeded(){const key=viewRect().join(',');if(key!==lastFit){lastFit=key;fitCanvas();}}
+function digitNames(key,count){
+  if(key==='clock')return ['m1','m2','s1','s2'];
+  if(key==='period')return ['p'];
+  return Array.from({length:count},(_,i)=>(key==='homeScore'?'h':'a')+(i+1));
+}
+
+function renderGroups(){
+  const box=document.getElementById('groups');box.innerHTML='';
+  for(const g of GROUPS){
+    const row=document.createElement('div');row.className='group';
+    const group=cal.groups[g.key];
+    const name=document.createElement('div');name.className='name';
+    name.innerHTML=`<span class="dot" style="background:${colorOf(g.key)}"></span>${g.label}`;
+    const control=document.createElement('div');control.className='row';
+    const mark=document.createElement('button');mark.textContent=group?'Volver a marcar':'Marcar';mark.dataset.group=g.key;
+    if(mode===g.key)mark.classList.add('armed');
+    mark.addEventListener('click',()=>arm(g.key));control.append(mark);
+    if(g.digits.length>1){
+      const select=document.createElement('select');select.title='Dígitos';
+      g.digits.forEach(n=>{const o=document.createElement('option');o.value=n;o.textContent=n+' díg.';select.append(o);});
+      select.value=String(group?.digits||2);
+      select.addEventListener('change',()=>{if(cal.groups[g.key])cal.groups[g.key].digits=+select.value;else pendingDigits[g.key]=+select.value;draw();});
+      control.append(select);
+    }
+    const read=document.createElement('div');read.className='read';read.id='read-'+g.key;
+    row.append(name,read,control);box.append(row);
+  }
+  updateReadings();
+}
+const pendingDigits={homeScore:2,awayScore:2};
+function updateReadings(){
+  for(const g of GROUPS){
+    const node=document.getElementById('read-'+g.key);if(!node)continue;
+    node.textContent=live[g.key]??'--';node.classList.toggle('stale',!(live.fields?.[g.key]?.valid));
+  }
+}
+function arm(key){
+  mode=mode===key?null:key;
+  if(mode&&mode!=='view'&&showFull){showFull=false;}
+  hint.textContent=mode==='view'?'Arrastrá un rectángulo alrededor del tablero.':mode?`Arrastrá un rectángulo sobre los dígitos de ${GROUPS.find(g=>g.key===mode).label.toLowerCase()}.`:'Arrastrá las esquinas para ajustar. Elegí un grupo para marcarlo de nuevo.';
+  renderGroups();draw();
+}
+document.getElementById('markView').addEventListener('click',()=>{showFull=true;mode='view';hint.textContent='Arrastrá un rectángulo alrededor del tablero.';renderGroups();draw();});
+document.getElementById('toggleView').addEventListener('click',e=>{showFull=!showFull;e.target.textContent=showFull?'Ver zona del tablero':'Ver cuadro completo';if(!showFull&&mode==='view')mode=null;draw();});
+
+function nearestCorner(point){
+  if(showFull)return null;
+  const [cx,cy]=toCanvas(point);let best=null;
+  for(const [key,group] of Object.entries(cal.groups))group.quad.forEach((p,i)=>{const [x,y]=toCanvas(p);const d=Math.hypot(x-cx,y-cy);if(d<14&&(!best||d<best.d))best={key,i,d};});
+  return best;
+}
+canvas.addEventListener('pointerdown',e=>{
+  const p=eventPoint(e);canvas.setPointerCapture(e.pointerId);
+  const corner=!mode&&nearestCorner(p);
+  if(corner){drag={kind:'corner',...corner};return;}
+  if(mode)drag={kind:'rect',start:p,end:p};
+});
+canvas.addEventListener('pointermove',e=>{
+  const p=eventPoint(e);
+  if(!drag){canvas.style.cursor=!mode&&nearestCorner(p)?'move':'crosshair';return;}
+  if(drag.kind==='corner'){cal.groups[drag.key].quad[drag.i]=[clampX(p[0]),clampY(p[1])];}
+  else drag.end=[clampX(p[0]),clampY(p[1])];
+  draw();
+});
+canvas.addEventListener('pointerup',()=>{
+  if(drag&&drag.kind==='rect'){
+    const x0=Math.min(drag.start[0],drag.end[0]),x1=Math.max(drag.start[0],drag.end[0]),y0=Math.min(drag.start[1],drag.end[1]),y1=Math.max(drag.start[1],drag.end[1]);
+    if(x1-x0>4&&y1-y0>4){
+      if(mode==='view'){cal.view=[Math.round(x0),Math.round(y0),Math.round(x1),Math.round(y1)];showFull=false;document.getElementById('toggleView').textContent='Ver cuadro completo';}
+      else{
+        const digits=cal.groups[mode]?.digits||(mode==='clock'?4:mode==='period'?1:pendingDigits[mode]);
+        cal.groups[mode]={quad:[[x0,y0],[x1,y0],[x1,y1],[x0,y1]],digits};
+      }
+      const order=['clock','homeScore','awayScore','period'],next=order.find(k=>!cal.groups[k]);
+      mode=null;
+      if(next){arm(next);}else{arm(null);}
+    }
+  }
+  drag=null;draw();
+});
+
+const threshold=document.getElementById('threshold'),thresholdValue=document.getElementById('thresholdValue'),color=document.getElementById('color');
+threshold.addEventListener('input',()=>{cal.threshold=+threshold.value;thresholdValue.textContent=threshold.value;draw();});
+color.addEventListener('change',()=>{cal.color=color.value;draw();});
+document.getElementById('showMask').addEventListener('change',draw);
+
+async function post(body){
+  const r=await fetch('/api/calibration',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const data=await r.json().catch(()=>({}));
+  if(!r.ok)throw Error(data.error||'No se pudo guardar');
+  return data;
+}
+document.getElementById('save').addEventListener('click',async()=>{
+  const missing=GROUPS.filter(g=>!cal.groups[g.key]).map(g=>g.label.toLowerCase());
+  if(missing.length){setStatus('Falta marcar: '+missing.join(', '),'err');return;}
+  try{const data=await post(cal);cal=data.calibration;setStatus('Guardado. El lector ya usa esta calibración.','ok');}
+  catch(error){setStatus(error.message,'err');}
+});
+document.getElementById('reset').addEventListener('click',async()=>{
+  try{const data=await post({reset:true});cal=data.calibration;syncInputs();renderGroups();draw();setStatus('Se restauró la calibración original.','ok');}
+  catch(error){setStatus(error.message,'err');}
+});
+function syncInputs(){threshold.value=cal.threshold;thresholdValue.textContent=cal.threshold;color.value=cal.color;}
+
+function loadFrame(){
+  if(document.getElementById('freeze').checked||drag){setTimeout(loadFrame,500);return;}
+  const next=new Image();
+  next.onload=()=>{image.src=next.src;};
+  next.onerror=()=>{hint.textContent='Sin imagen del tablero. Revisá que el lector reciba video.';setTimeout(loadFrame,1500);};
+  next.src='/frame.jpg?t='+Date.now();
+}
+image.onload=()=>{if(!imageReady){imageReady=true;arm(Object.keys(cal.groups).length?null:'clock');}draw();setTimeout(loadFrame,800);};
+
+async function pollState(){
+  try{const r=await fetch('/api/state',{cache:'no-store'});live=await r.json();updateReadings();if(!drag)draw();}catch{}
+  setTimeout(pollState,700);
+}
+fetch('/api/calibration').then(r=>r.json()).then(data=>{cal=data.calibration;syncInputs();renderGroups();draw();loadFrame();pollState();
+  if(!data.calibrated)setStatus('Mostrando la calibración original de ejemplo. Marcá tu tablero y guardá.');});
+})();
+</script>
+</body>
+</html>

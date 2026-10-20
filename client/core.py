@@ -17,23 +17,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from PIL import Image
-from reader import QUADS, recognize, mask, warp
 import reader as reader_module
 
 ROOT = Path(__file__).resolve().parent
 KEYS = ('clock', 'homeScore', 'awayScore', 'period')
-GROUPS = {'clock':('m1','m2','s1','s2'), 'homeScore':('h1','h2'), 'awayScore':('a1','a2'), 'period':('p',)}
 ALLOWLIST = {'GetSourceScreenshot', 'GetInputList', 'GetSceneList', 'GetInputSettings', 'GetCurrentProgramScene'}
 READER_MTIME = Path(reader_module.__file__).stat().st_mtime_ns
 
 
 def reload_reader_if_changed():
-    global READER_MTIME, QUADS, recognize, mask, warp
+    global READER_MTIME
     current=Path(reader_module.__file__).stat().st_mtime_ns
     if current != READER_MTIME:
         importlib.invalidate_caches()
         importlib.reload(reader_module)
-        QUADS,recognize,mask,warp=(reader_module.QUADS,reader_module.recognize,reader_module.mask,reader_module.warp)
         READER_MTIME=current
         logging.info('Lector actualizado: %s',reader_module.READER_VERSION)
 
@@ -124,21 +121,30 @@ class OBS:
 
 
 def read_values(im):
-    digits={k:recognize(im,k)[0] for k in QUADS}
+    r=reader_module
+    results={k:r.recognize(im,k) for k in r.QUADS}
+    digits={k:v[0] for k,v in results.items()}
+    dark={k for k,v in results.items() if v[0] is None and not v[1]}
     values={}
-    for key,names in GROUPS.items():
+    for key,names in r.GROUPS.items():
+        if key in ('homeScore','awayScore'):
+            # Scores may leave leading digits unlit (e.g. " 7").
+            lead=0
+            while lead<len(names)-1 and names[lead] in dark:lead+=1
+            names=names[lead:]
         if any(digits[n] is None for n in names):continue
         text=''.join(digits[n] for n in names)
         if key=='clock':
             if int(text[2:])>59 or int(text[:2])>20:continue
             text=text[:2]+':'+text[2:]
         if key=='period' and not 1<=int(text)<=9:continue
+        if key in ('homeScore','awayScore'):text=str(int(text))
         values[key]=text
     # The board uses SS:T below one minute and leaves the fourth digit dark.
     # Only accept this layout when the fourth position has no illuminated LED;
     # an unreadable but lit digit must not be mistaken for decimal mode.
-    if 'clock' not in values and all(digits[k] is not None for k in ('m1','m2','s1')):
-        fourth_pixels=int(mask(warp(im,QUADS['s2'])).sum())
+    if 'clock' not in values and all(digits.get(k) is not None for k in ('m1','m2','s1')) and 's2' in r.QUADS:
+        fourth_pixels=int(r.mask(r.warp(im,r.QUADS['s2'])).sum())
         seconds=int(digits['m1']+digits['m2'])
         if fourth_pixels<50 and seconds<60:
             values['clock']=f"{seconds:02d}.{digits['s1']}"
@@ -187,7 +193,7 @@ class Feed:
         self.args=args;self.lock=threading.Condition();self.revision=0
         self.values={'clock':'--:--','homeScore':'--','awayScore':'--','period':'--'}
         self.confirmed={};self.pending={};self.connected=False;self.captured=0.;self.board=b'';self.error='Esperando el tablero'
-        self.last_samples={};self.digits={}
+        self.last_samples={};self.digits={};self.frame=None
         self.board_off=False;self.dark_since=None
 
     def snapshot(self):
@@ -205,8 +211,9 @@ class Feed:
     def process(self,im,now=None):
         now=now or time.time();raw,digits=read_values(im)
         power=reader_module.board_power_state(im,digits)
-        crop=getattr(self.args,'board_crop',None)
+        crop=getattr(self.args,'board_crop',None) or (reader_module.VIEW if reader_module.CALIBRATED else None)
         view=im.crop(tuple(crop)) if crop else im.resize((640,360))
+        self.frame=im
         out=io.BytesIO();view.save(out,format='PNG')
         with self.lock:
             self.board=out.getvalue();self.connected=True;self.captured=now;self.digits=digits

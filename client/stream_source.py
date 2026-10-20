@@ -25,9 +25,23 @@ def validate_stream(value):
     return value
 
 
+IMAGE_TYPES={'.jpg','.jpeg','.png','.bmp','.webp'}
+VIDEO_TYPES={'.mp4','.mov','.mkv','.avi','.ts','.m4v','.webm','.mxf','.wmv'}
+
+
+def media_file(value):
+    """A local photo or video used to test the reader (looped)."""
+    if not isinstance(value,str) or '://' in value:return None
+    path=Path(value.strip().strip('"'))
+    if path.suffix.lower() in IMAGE_TYPES|VIDEO_TYPES and path.is_file():return str(path.resolve())
+    return None
+
+
 def srt_url(value,latency_ms=400):
     """Accepts IP:PORT or a full srt:// URL and adds caller mode and latency."""
     value=value.strip()
+    local=media_file(value)
+    if local:return local
     if '://' not in value:value='srt://'+value
     parsed=urllib.parse.urlsplit(value)
     if parsed.scheme!='srt':return validate_stream(value)
@@ -62,7 +76,10 @@ class StreamFrames:
 
     def command(self,binary):
         options=['-hide_banner','-loglevel','error','-nostdin','-probesize','1000000','-analyzeduration','1000000','-fflags','nobuffer','-flags','low_delay']
-        if self.url.startswith('rtsp'):options+=['-rtsp_transport','tcp']
+        source=Path(self.url)
+        if source.suffix.lower() in IMAGE_TYPES and source.is_file():options+=['-loop','1','-framerate',str(self.fps)]
+        elif source.suffix.lower() in VIDEO_TYPES and source.is_file():options+=['-re','-stream_loop','-1']
+        elif self.url.startswith('rtsp'):options+=['-rtsp_transport','tcp']
         options+=['-i',self.url,'-an','-sn','-vf',f'fps={self.fps},scale={self.width}:{self.height}',
                   '-pix_fmt','rgb24','-f','rawvideo','pipe:1']
         return [binary]+options
