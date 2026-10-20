@@ -67,6 +67,11 @@ def validate_calibration(data):
     x0,y0,x1,y1=[int(round(float(v))) for v in view]
     x0,x1=sorted((max(0,min(1920,x0)),max(0,min(1920,x1))));y0,y1=sorted((max(0,min(1080,y0)),max(0,min(1080,y1))))
     if x1-x0<20 or y1-y0<20:raise ValueError('Zona del tablero demasiado chica')
+    points=[pt for group in clean.values() for pt in group['quad']]
+    if any(not (x0<=x<=x1 and y0<=y<=y1) for x,y in points):
+        # The zone must contain every marked group; otherwise frame them with a margin.
+        xs=[x for x,_ in points];ys=[y for _,y in points];mx=(max(xs)-min(xs))*.12+10;my=(max(ys)-min(ys))*.12+10
+        x0,y0=int(max(0,min(xs)-mx)),int(max(0,min(ys)-my));x1,y1=int(min(1920,max(xs)+mx)),int(min(1080,max(ys)+my))
     return {'groups':clean,'color':color,'threshold':threshold,'view':[x0,y0,x1,y1]}
 
 

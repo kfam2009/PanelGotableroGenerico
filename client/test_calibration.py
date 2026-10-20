@@ -60,6 +60,10 @@ class CalibrationTests(unittest.TestCase):
         reader.apply_calibration(CALIBRATION)
         feed=Feed(SimpleNamespace(source='x'));feed.process(board(),100)
         import io;self.assertEqual(Image.open(io.BytesIO(feed.board)).size,(450,410))
+    def test_zone_is_widened_to_contain_the_marked_groups(self):
+        view=reader.validate_calibration({**CALIBRATION,'view':[1360,350,1700,610]})['view']
+        self.assertTrue(view[0]<=390 and view[1]<=190 and view[2]>=690 and view[3]>=520)
+        self.assertEqual(reader.validate_calibration(CALIBRATION)['view'],[350,150,800,560])
     def test_default_calibration_round_trips(self):
         default=reader.default_calibration()
         self.assertEqual(reader.validate_calibration(default)['groups']['clock']['digits'],4)
