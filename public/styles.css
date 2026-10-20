@@ -376,7 +376,7 @@ select {
   }
 }
 
-/* Club Estrella: cuatro lecturas automáticas y salida transparente. */
+/* Panel Go: cuatro lecturas automáticas y salida transparente. */
 .control-page { font-family: Arial, sans-serif; grid-template-columns: 320px minmax(0,1fr); }
 .preview-shell { display:flex; flex-direction:column; justify-content:flex-start; min-height:100vh; }
 .stage-frame { width:100%; position:relative; overflow:hidden; flex:none; }

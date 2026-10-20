@@ -1,4 +1,4 @@
-PANEL GO - CLUB ESTRELLA / INSTALACION LOCAL
+PANEL GO - TABLERO / INSTALACION LOCAL
 
 1. Extraer TODO el ZIP en C:\PanelGo en la PC que ejecuta OBS.
 2. Abrir INSTALAR.cmd una sola vez con internet. Requiere Python 3.10 o posterior
@@ -6,9 +6,9 @@ PANEL GO - CLUB ESTRELLA / INSTALACION LOCAL
 3. OBS > Herramientas > Ajustes del servidor WebSocket:
    habilitado, puerto 4455, autenticacion desmarcada.
    Fuente del tablero: Camara 2. Puede ajustarse en config.json.
-4. Abrir el acceso directo Panel Go - Club Estrella del escritorio.
+4. Abrir el acceso directo Panel Go - Tablero del escritorio.
    Mantener abierta la ventana del lector mientras se usa el panel.
-5. En la fuente existente Panel Go - Marcador Estrella de OBS, cambiar URL a:
+5. En la fuente existente Panel Go - Marcador de OBS, cambiar URL a:
    http://127.0.0.1:8771/graphics.html
    Conservar el resto de sus propiedades y dimensiones.
    Realizar este cambio fuera del aire; no hace falta reiniciar OBS.

@@ -8,7 +8,7 @@ class SettingsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path=Path(folder)/'settings.json'
             self.assertEqual(read_graphic_settings(path),{})
-            save_graphic_settings({'homeName':'ESTRELLA','awayName':'INDEPENDIENTE','homeLogo':'assets/logo.png'},path)
+            save_graphic_settings({'homeName':'LOCAL','awayName':'INDEPENDIENTE','homeLogo':'assets/logo.png'},path)
             save_graphic_settings({'tournament':'Liga'},path)
             self.assertEqual(read_graphic_settings(path)['awayName'],'INDEPENDIENTE')
             self.assertEqual(read_graphic_settings(path)['tournament'],'Liga')

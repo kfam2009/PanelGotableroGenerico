@@ -1,14 +1,21 @@
 {
-  "cloud_url": "https://YOUR-SERVICE.onrender.com",
-  "ingest_token": "REPLACE_WITH_THE_PRIVATE_INGEST_TOKEN_FROM_RENDER",
-  "obs_host": "127.0.0.1",
+  "switcher": "obs",
+  "production_host": "127.0.0.1",
+  "bridge_address": "",
   "obs_port": 4455,
   "obs_password": "",
-  "bridge_address": "",
+  "vmix_port": 8088,
+  "vmix_overlay": 1,
+  "board_mode": "obs",
   "source": "Camara 2",
+  "board_url": "",
+  "srt_latency_ms": 400,
   "game_source": "camara 01",
+  "game_url": "",
   "monitor_mode": "program",
   "game_rtsp": "",
   "video_port": 1987,
-  "local_port": 8771
+  "local_port": 8771,
+  "cloud_url": "https://YOUR-SERVICE.onrender.com",
+  "ingest_token": "REPLACE_WITH_THE_PRIVATE_INGEST_TOKEN_FROM_RENDER"
 }

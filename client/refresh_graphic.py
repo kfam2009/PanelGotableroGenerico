@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import urlsplit,parse_qsl,urlencode
 import core
 
-SOURCE='Panel Go - Marcador Estrella'
+SOURCE='Panel Go - Marcador'
 
 def refresh_graphic(obs,port=8771,verify=False):
     sources=obs.request('GetInputList')['inputs']

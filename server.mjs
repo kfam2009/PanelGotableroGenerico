@@ -63,7 +63,7 @@ export class ScoreStore extends EventEmitter {
     const good = connected && Object.values(fields).every(field => field.valid);
     const standby = connected && latest?.boardOff === true;
     return { ...DEFAULTS, ...(latest || {}), fields, connected,
-      service: 'club-estrella', version: '1.0.0', source: 'OBS local del cliente',
+      service: 'panelgo-tablero', version: '1.0.0', source: 'OBS local del cliente',
       revision: this.revision, ocrStatus: standby ? 'standby' : good ? 'ok' : 'waiting',
       status: !latest ? 'Esperando lector de la PC del cliente' : standby ? 'Tablero apagado · listo para iniciar' : good ? 'Lectura automatica activa' : connected ? 'Verificando lectura del tablero' : 'Lector sin conexion · ultimo dato recibido',
       boardImage: '',
@@ -94,7 +94,7 @@ export function createHandler({ token, store = new ScoreStore() }) {
     res.setHeader('Referrer-Policy', 'no-referrer');
     const url = new URL(req.url, 'http://localhost');
     try {
-      if (req.method === 'GET' && url.pathname === '/healthz') return json(res, 200, { ok: true, service: 'club-estrella' });
+      if (req.method === 'GET' && url.pathname === '/healthz') return json(res, 200, { ok: true, service: 'panelgo-tablero' });
       if (req.method === 'POST' && url.pathname === '/api/ingest') {
         if (!authorized(req.headers.authorization, token)) return json(res, 401, { error: 'No autorizado' });
         if (!req.headers['content-type']?.startsWith('application/json')) return json(res, 415, { error: 'Se requiere JSON' });
@@ -137,7 +137,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const server = http.createServer(app.handler);
     server.requestTimeout = 15000; server.headersTimeout = 10000;
     const port = Number(process.env.PORT || 10000);
-    server.listen(port, '0.0.0.0', () => console.log(`Club Estrella en puerto ${port}`));
+    server.listen(port, '0.0.0.0', () => console.log(`Panel Go en puerto ${port}`));
     const stop = () => { app.close(); server.close(() => process.exit(0)); server.closeIdleConnections(); setTimeout(() => process.exit(1), 10000).unref(); };
     process.on('SIGTERM', stop); process.on('SIGINT', stop);
   }

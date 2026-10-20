@@ -37,7 +37,7 @@ class ClockDeliveryTests(unittest.TestCase):
     def test_local_events_deliver_ticks_without_waiting_for_one_second(self):
         feed=Feed(SimpleNamespace(source='Camara 2'))
         feed.values['clock']='09:03'
-        uplink=SimpleNamespace(config={'cloud_url':'https://clubestrella-panel.onrender.com'},message='ok')
+        uplink=SimpleNamespace(config={'cloud_url':'https://panelgo-tablero.onrender.com'},message='ok')
         server=local_server(feed,uplink,SimpleNamespace(snapshot=lambda:{}),0)
         thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))

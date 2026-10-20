@@ -1,4 +1,4 @@
-CLUB ESTRELLA - PRUEBA DE VIDEO CONTINUO EN LA PC DEL CLUB
+PANEL GO - PRUEBA DE VIDEO CONTINUO EN LA PC DEL CLUB
 
 1. Extraer TODO este ZIP en una carpeta de la PC que ejecuta OBS.
    Requiere Windows de 64 bits y Python 3.10 o posterior.

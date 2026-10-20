@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Club Estrella · Marcador OBS</title>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Panel Go · Marcador</title>
 <style>
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent;color:white;font-family:Arial,sans-serif}
 #bar{position:absolute;left:8%;right:8%;bottom:9%;height:6%;min-height:38px;display:flex;background:#08090b;border-top:3px solid #e83940;box-sizing:border-box}
@@ -16,16 +16,16 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent
 #warning{position:absolute;left:8%;bottom:16%;font-size:1vw;background:#7b4c0e;padding:5px 10px;display:none}
 .info{flex-direction:row;align-items:center;gap:6px}.info-copy{flex:1;min-width:0}.event-logo{display:none;width:2.6vw;height:100%;object-fit:contain;flex-shrink:0}
 </style></head><body>
-<div id="bar"><div class="cell brand"><img src="assets/panelgo-logo.png" alt="Panel Go"></div><img id="homeLogo" class="logo" alt=""><div id="homeName" class="cell team">ESTRELLA</div><div id="homeScore" class="cell score">--</div><img id="awayLogo" class="logo" alt=""><div id="awayName" class="cell team">VISITA</div><div id="awayScore" class="cell score">--</div><div id="period" class="cell period">--</div><div id="clock" class="cell clock">--:--</div><div class="info"><div class="info-copy"><strong id="tournament">CLUB ESTRELLA</strong><span id="category"></span></div><img id="eventLogo" class="event-logo" alt="Logo de categoría / zona"></div></div>
+<div id="bar"><div class="cell brand"><img src="assets/panelgo-logo.png" alt="Panel Go"></div><img id="homeLogo" class="logo" alt=""><div id="homeName" class="cell team">LOCAL</div><div id="homeScore" class="cell score">--</div><img id="awayLogo" class="logo" alt=""><div id="awayName" class="cell team">VISITA</div><div id="awayScore" class="cell score">--</div><div id="period" class="cell period">--</div><div id="clock" class="cell clock">--:--</div><div class="info"><div class="info-copy"><strong id="tournament">PANEL GO</strong><span id="category"></span></div><img id="eventLogo" class="event-logo" alt="Logo de categoría / zona"></div></div>
 <script>
 (function(){
  var fields=['clock','homeScore','awayScore','period'],last=0,lastGood=false,lastStamp=0,busy=false;
  var params=new URLSearchParams(location.search),manual=params.get('live')==='0';
- var settings={};try{settings=JSON.parse(localStorage.getItem('club-estrella-settings-v1')||'{}');}catch(e){}
+ var settings={};try{settings=JSON.parse(localStorage.getItem('panelgo-tablero-settings-v1')||'{}');}catch(e){}
  ['homeName','awayName','tournament','category'].forEach(function(k){var v=params.get(k)||settings[k];if(v)document.getElementById(k).textContent=v;});
  ['homeLogo','awayLogo','eventLogo'].forEach(function(k){var v=params.get(k)||settings[k];if(v){var n=document.getElementById(k);n.src=v;n.style.display='block';}});
  function applySettings(values){if(!values)return;['homeName','awayName','tournament','category'].forEach(function(k){if(typeof values[k]==='string')document.getElementById(k).textContent=values[k];});['homeLogo','awayLogo','eventLogo'].forEach(function(k){if(typeof values[k]!=='string')return;var n=document.getElementById(k),v=values[k];if(v&&n.getAttribute('src')!==v)n.src=v;n.style.display=v?'block':'none';});}
- function accept(s){applySettings(s.graphicSettings);if(s.service!=='club-estrella')return;var stamp=Date.parse(s.updatedAt)||0;if(stamp&&stamp<lastStamp)return;if(stamp)lastStamp=stamp;last=Date.now();lastGood=!!s.connected&&s.ocrStatus==='ok';fields.forEach(function(k){if(typeof s[k]==='string')document.getElementById(k).textContent=s[k];});}
+ function accept(s){applySettings(s.graphicSettings);if(s.service!=='panelgo-tablero')return;var stamp=Date.parse(s.updatedAt)||0;if(stamp&&stamp<lastStamp)return;if(stamp)lastStamp=stamp;last=Date.now();lastGood=!!s.connected&&s.ocrStatus==='ok';fields.forEach(function(k){if(typeof s[k]==='string')document.getElementById(k).textContent=s[k];});}
  function health(){}
  function pollSettings(){if(location.hostname!=='127.0.0.1'&&location.hostname!=='localhost')return;var c=new XMLHttpRequest();c.open('GET','http://127.0.0.1:8774/settings',true);c.timeout=2500;c.onload=function(){try{if(c.status===200)applySettings(JSON.parse(c.responseText));}catch(e){}};c.send();}
  function poll(force){if(busy||(!force&&Date.now()-last<500))return;busy=true;var x=new XMLHttpRequest();x.open('GET','api/state',true);x.timeout=1500;x.onload=function(){busy=false;try{if(x.status===200)accept(JSON.parse(x.responseText));}catch(e){}health();};x.onerror=x.ontimeout=function(){busy=false;health();};x.send();}

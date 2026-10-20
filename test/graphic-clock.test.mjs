@@ -11,10 +11,10 @@ test('OBS output displays every delivered second, rejects older frames and never
  const context=vm.createContext({document:{getElementById:id=>nodes[id]??=( {textContent:'',style:{}} )},localStorage:{getItem:()=>null},location:{search:'',hostname:'127.0.0.1'},URLSearchParams,Date,XMLHttpRequest:XHR,EventSource:Events,window:{EventSource:Events},setInterval:fn=>timers.push(fn)});
  vm.runInContext(code,context);
  for(const [clock,second] of [['09:03',1],['09:02',2],['09:01',3]]){
-  eventStream.onmessage({data:JSON.stringify({service:'club-estrella',clock,updatedAt:`2026-10-17T12:00:0${second}Z`})});
+  eventStream.onmessage({data:JSON.stringify({service:'panelgo-tablero',clock,updatedAt:`2026-10-17T12:00:0${second}Z`})});
   assert.equal(nodes.clock.textContent,clock);
  }
- eventStream.onmessage({data:JSON.stringify({service:'club-estrella',clock:'09:02',updatedAt:'2026-10-17T12:00:02Z'})});
+ eventStream.onmessage({data:JSON.stringify({service:'panelgo-tablero',clock:'09:02',updatedAt:'2026-10-17T12:00:02Z'})});
  assert.equal(nodes.clock.textContent,'09:01');
  for(let i=0;i<10;i++)for(const tick of timers)tick();
  assert.equal(nodes.clock.textContent,'09:01');

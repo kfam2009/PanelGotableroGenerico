@@ -31,9 +31,23 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(self.config()['bridge_address'],'')
         self.assertEqual(self.config(**{**remote,'obs_password':''})['obs_host'],'172.27.4.10')
         with self.assertRaises(ValueError):self.config(**{**remote,'bridge_address':''})
-        with self.assertRaises(ValueError):self.config(**{**remote,'bridge_address':'172.27.4.10'})
+        same=self.config(**{**remote,'bridge_address':'172.27.4.10'})
+        self.assertEqual((same['obs_host'],same['bridge_address']),('127.0.0.1',''))
         with self.assertRaises(ValueError):self.config(**{**remote,'obs_host':'8.8.8.8'})
         with self.assertRaises(ValueError):self.config(**{**remote,'obs_host':'obs.example.com'})
+
+    def test_vmix_reads_the_board_over_srt(self):
+        vmix=dict(switcher='vmix',production_host='172.27.4.10',bridge_address='172.27.4.221',board_url='172.27.4.10:9000')
+        config=self.config(**vmix)
+        self.assertEqual((config['switcher'],config['board_mode'],config['production_host']),('vmix','stream','172.27.4.10'))
+        self.assertEqual(config['board_url'],'srt://172.27.4.10:9000?mode=caller&latency=400000')
+        self.assertEqual(self.config(**{**vmix,'board_url':'srt://172.27.4.10:9000?latency=800000'})['board_url'],'srt://172.27.4.10:9000?latency=800000&mode=caller')
+        self.assertEqual(self.config(**{**vmix,'board_url':'rtsp://172.27.4.50/stream'})['board_url'],'rtsp://172.27.4.50/stream')
+        with self.assertRaises(ValueError):self.config(**{**vmix,'board_url':''})
+        with self.assertRaises(ValueError):self.config(**{**vmix,'board_mode':'obs'})
+        with self.assertRaises(ValueError):self.config(**{**vmix,'board_url':'http://172.27.4.10:9000'})
+        with self.assertRaises(ValueError):self.config(**{**vmix,'switcher':'tricaster'})
+        self.assertEqual(self.config(**{**vmix,'bridge_address':'172.27.4.10'})['production_host'],'127.0.0.1')
 
     def test_blank_frame_is_not_a_score(self):
         self.assertEqual(read_values(Image.new('RGB',(1920,1080)))[0],{})

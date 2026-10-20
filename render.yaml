@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: clubestrella-panel
+    name: panelgo-tablero
     runtime: node
     plan: free
     branch: main

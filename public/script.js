@@ -1,12 +1,13 @@
 const defaults = {
-  homeName: 'ESTRELLA', awayName: 'VISITA', homeScore: '--', awayScore: '--',
+  homeName: 'LOCAL', awayName: 'VISITA', homeScore: '--', awayScore: '--',
   homeLogo: '', awayLogo: '', eventLogo: '', period: '--', clock: '--:--', shotClock: '',
-  tournament: 'CLUB ESTRELLA', category: '',
+  tournament: 'PANEL GO', category: '',
 };
 const liveKeys = ['clock','homeScore','awayScore','period'];
 const params = new URLSearchParams(location.search);
 const liveMode = params.get('live') !== '0';
-const storageKey = 'club-estrella-settings-v1';
+const storageKey = 'panelgo-tablero-settings-v1';
+var switcherName = 'OBS';
 function savedSettings() { try { return JSON.parse(localStorage.getItem(storageKey) || '{}'); } catch { return {}; } }
 const state = {...defaults, ...savedSettings()};
 for (const [key,value] of params) if (key in defaults && (!liveMode || !liveKeys.includes(key))) state[key] = value;
@@ -57,7 +58,7 @@ function showHealth() {
 function acceptFeed(live, local=false) {
   if(!local && Date.now()-lastLocalEvent<2500)return;
   if(local)lastLocalEvent=Date.now();
-  if (!liveMode || live.service !== 'club-estrella') return;
+  if (!liveMode || live.service !== 'panelgo-tablero') return;
   lastFeed = live; lastEvent = Date.now();
   for (const key of liveKeys) if (typeof live[key] === 'string') state[key] = live[key];
   render(); showHealth();
@@ -71,7 +72,7 @@ function updateMonitors(live) {
   if(remoteMonitorsActive && !live.gameMode)return;
   const game = document.getElementById('gamePreview');
   const gameStatus = document.getElementById('gameStatus');
-  const gameLabel = document.getElementById('gameLabel'); if (gameLabel) gameLabel.textContent = live.gameView === 'program' ? '02 / Salida de OBS' : '02 / Cancha';
+  const gameLabel = document.getElementById('gameLabel'); if (gameLabel) gameLabel.textContent = live.gameLabel ? '02 / '+live.gameLabel : live.gameView === 'program' ? '02 / Salida de '+switcherName : '02 / Cancha';
   const continuous = live.gameMode === 'continuous';
   const player = document.getElementById('gameVideo');
   if (player) player.hidden = !continuous;
@@ -80,7 +81,7 @@ function updateMonitors(live) {
     customElements.whenDefined('club-game').then(() => { player.src = '/video/ws'; });
   }
   if (continuous && game) game.hidden = true;
-  if (gameStatus && !continuous && !programStream) gameStatus.textContent = live.gameConnected ? (live.gameView === 'program' ? 'Programa · sin audio' : 'Capturas de respaldo') : 'Sin actualización';
+  if (gameStatus && !continuous && !programStream) gameStatus.textContent = live.gameConnected ? (live.gameView === 'program' ? 'Programa · sin audio' : 'Capturas de respaldo') : (live.gameStatus || 'Sin actualización');
   if (gameStatus && continuous && !live.gameReady) gameStatus.textContent = live.gameStatus || 'Preparando video continuo';
   if (game && !continuous && !programStream) {
     game.classList.toggle('value-stale', !live.gameConnected);
@@ -151,13 +152,14 @@ async function refreshOBSGraphic() {
  try {
   const r=await fetch('http://127.0.0.1:8774/state',{cache:'no-store',signal:AbortSignal.timeout(2500)});
   if(!r.ok)throw Error(); const s=await r.json();obsGraphicState=s;obsGraphicToken=s.token;
-  if(s.safetyLocked&&!s.enabled){obsGraphicButton.disabled=true;obsGraphicButton.textContent='Prueba pausada';obsGraphicStatus.textContent='APAGADO EN OBS';return;}
+  const sw=s.switcher||'OBS';switcherName=sw;document.querySelectorAll('.monitor-video-button').forEach(b=>b.hidden=!(sw==='OBS'&&s.local!==false));
+  if(s.safetyLocked&&!s.enabled){obsGraphicButton.disabled=true;obsGraphicButton.textContent='Prueba pausada';obsGraphicStatus.textContent='APAGADO EN '+sw.toUpperCase();return;}
   obsGraphicButton.disabled=false;
-  obsGraphicButton.textContent=!s.ready?'Preparar en OBS':s.enabled?'Ocultar de OBS':'Mostrar en OBS';
+  obsGraphicButton.textContent=!s.ready?'Preparar en '+sw:s.enabled?'Ocultar de '+sw:'Mostrar en '+sw;
   obsGraphicButton.dataset.on=String(s.enabled);obsGraphicButton.setAttribute('aria-pressed',String(s.enabled));
-  obsGraphicStatus.textContent=!s.ready?'Sin agregar':s.enabled?'VISIBLE EN OBS':'APAGADO EN OBS';
+  obsGraphicStatus.textContent=!s.ready?'Sin agregar':s.enabled?'VISIBLE EN '+sw.toUpperCase():'APAGADO EN '+sw.toUpperCase();
   obsGraphicStatus.dataset.on=String(s.enabled);
- } catch {obsGraphicButton.disabled=true;obsGraphicStatus.textContent='Control OBS sin conexión';}
+ } catch {obsGraphicButton.disabled=true;obsGraphicStatus.textContent='Control de '+switcherName+' sin conexión';}
 }
 obsGraphicButton?.addEventListener('click',async()=>{
  if(obsGraphicBusy)return;
@@ -168,7 +170,7 @@ obsGraphicButton?.addEventListener('click',async()=>{
   const route=obsGraphicState.ready?'visibility':'install';
   const r=await fetch('http://127.0.0.1:8774/'+route,{method:'POST',headers:{'Content-Type':'application/json','X-Panel-Token':obsGraphicToken},body:JSON.stringify({enabled:!obsGraphicState.enabled}),signal:AbortSignal.timeout(12000)});
   if(!r.ok)throw Error();
- }catch{obsGraphicStatus.textContent='No se pudo cambiar en OBS';}
+ }catch{obsGraphicStatus.textContent='No se pudo cambiar en '+switcherName;}
  finally{obsGraphicBusy=false;await refreshOBSGraphic();}
 });
 if(obsGraphicButton){refreshOBSGraphic();setInterval(refreshOBSGraphic,3000);}
@@ -179,13 +181,13 @@ let obsSettingsTimer=0;
 async function syncOBSSettings() {
  if(!obsSettingsButton)return false;
  if(!obsGraphicToken)await refreshOBSGraphic();
- if(!obsGraphicToken){obsSettingsButton.textContent='Sin conexión con OBS';return false;}
+ if(!obsGraphicToken){obsSettingsButton.textContent='Sin conexión con '+switcherName;return false;}
  obsSettingsButton.disabled=true;
  try{
   const settings=Object.fromEntries(['homeName','awayName','homeLogo','awayLogo','eventLogo','tournament','category'].map(k=>[k,state[k]||'']));
   const r=await fetch('http://127.0.0.1:8774/settings',{method:'POST',headers:{'Content-Type':'application/json','X-Panel-Token':obsGraphicToken},body:JSON.stringify(settings),signal:AbortSignal.timeout(5000)});
   if(!r.ok)throw Error();
-  localStorage.setItem('club-estrella-obs-linked','1');obsSettingsButton.textContent='Datos enviados a OBS ✓';return true;
+  localStorage.setItem('panelgo-tablero-obs-linked','1');obsSettingsButton.textContent='Datos enviados a '+switcherName+' ✓';return true;
  }catch{obsSettingsButton.textContent='No se pudieron enviar los datos';return false;}
  finally{obsSettingsButton.disabled=false;}
 }
@@ -193,7 +195,7 @@ function scheduleOBSSettings(){
  clearTimeout(obsSettingsTimer);obsSettingsTimer=setTimeout(syncOBSSettings,350);
 }
 obsSettingsButton?.addEventListener('click',syncOBSSettings);
-if(localStorage.getItem(storageKey)&&localStorage.getItem('club-estrella-obs-linked')!=='1')scheduleOBSSettings();
+if(localStorage.getItem(storageKey)&&localStorage.getItem('panelgo-tablero-obs-linked')!=='1')scheduleOBSSettings();
 
 // A fresh installation inherits the saved match names and logos from its local controller.
 if (!localStorage.getItem(storageKey)) {
@@ -201,19 +203,19 @@ if (!localStorage.getItem(storageKey)) {
   if(localStorage.getItem(storageKey)||!Object.keys(settings).length)return;
   for(const key of ['homeName','awayName','homeLogo','awayLogo','eventLogo','tournament','category'])if(typeof settings[key]==='string')state[key]=settings[key];
   localStorage.setItem(storageKey,JSON.stringify(Object.fromEntries(Object.entries(state).filter(([key])=>!liveKeys.includes(key)))));
-  localStorage.setItem('club-estrella-obs-linked','1');render();
+  localStorage.setItem('panelgo-tablero-obs-linked','1');render();
  }).catch(()=>{});
 }
 
 // The hosted panel reads monitors only from the reader on this same PC.
-if(location.hostname==='clubestrella-panel.onrender.com') {
+if(location.hostname==='panelgo-tablero.onrender.com') {
  const note=document.querySelector('.cloud-note');
  const cameras=document.createElement('div');cameras.className='camera-pair';cameras.hidden=true;
  cameras.innerHTML='<figure><figcaption>01 / Tablero <small>Lectura automática · esta PC</small></figcaption><div class="camera-image"><img id="boardPreview" alt="Captura del tablero" hidden></div></figure><figure><figcaption><span id="gameLabel">02 / Salida de OBS</span> <small id="gameStatus">Conectando</small></figcaption><div class="camera-image"><img id="gamePreview" alt="Salida de OBS de esta PC" hidden></div></figure>';
  note?.before(cameras);
  if(note)note.textContent='Conectando con los monitores de esta PC. Mantené abierto el lector; si el navegador pide acceso a la red local, permitilo para este panel.';
  function acceptLocalState(local){
-  if(local.service!=='club-estrella')return;
+  if(local.service!=='panelgo-tablero')return;
   remoteMonitorsActive=true;cameras.hidden=false;if(note)note.hidden=true;
   cameras.querySelectorAll('img').forEach(img=>img.classList.remove('value-stale'));
   acceptFeed({...local,gameMode:'snapshots',gameImage:'http://127.0.0.1:8771/game.jpg',boardImage:'http://127.0.0.1:8771/board.png'},true);
@@ -225,7 +227,7 @@ if(location.hostname==='clubestrella-panel.onrender.com') {
   if(busy||Date.now()-lastLocalEvent<800)return;busy=true;
   try{
    const response=await fetch('http://127.0.0.1:8771/api/state',{cache:'no-store',signal:AbortSignal.timeout(2500)});
-   if(!response.ok)throw Error();const local=await response.json();if(local.service!=='club-estrella')throw Error();
+   if(!response.ok)throw Error();const local=await response.json();if(local.service!=='panelgo-tablero')throw Error();
    acceptLocalState(local);
   }catch{
    if(note){note.hidden=false;note.textContent='Monitores sin conexión con esta PC. Abrí el lector actualizado y permití el acceso a la red local si el navegador lo solicita.';}

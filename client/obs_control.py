@@ -14,7 +14,7 @@ try:
 except ImportError:
     from server import OBS
 
-SOURCE='Panel Go - Marcador Estrella'
+SOURCE='Panel Go - Marcador'
 SETTINGS_PATH=Path(__file__).with_name('.graphic-settings.json')
 SETTINGS_LOCK=threading.Lock()
 SETTING_KEYS={'homeName','awayName','homeLogo','awayLogo','eventLogo','tournament','category'}
@@ -59,6 +59,7 @@ class GraphicsOBS(OBS):
                 return response.get('responseData',{})
 
 class GraphicControl:
+    name='OBS'
     def __init__(self,host='127.0.0.1',port=4455,scene=''):
         self.host=host;self.port=port;self.scene=scene;self.lock=threading.Lock()
     def connect(self):return GraphicsOBS(self.host,self.port,os.environ.get('OBS_PASSWORD',''))
@@ -78,7 +79,7 @@ class GraphicControl:
             obs=self.connect()
             try:
                 scene,item=self.locate(obs)
-                return {'ready':bool(item),'enabled':bool(item and item['sceneItemEnabled']),'scene':scene,'source':SOURCE,'safetyLocked':Path(__file__).with_name('.obs-safety-lock').exists()}
+                return {'ready':bool(item),'enabled':bool(item and item['sceneItemEnabled']),'scene':scene,'source':SOURCE,'safetyLocked':Path(__file__).with_name('.obs-safety-lock').exists(),'switcher':'OBS'}
             finally:obs.close()
     def install(self,url):
         with self.lock:
@@ -119,7 +120,7 @@ class GraphicControl:
 def make_control_server(control,port=8774,graphic_url='http://127.0.0.1:8771/graphics.html',cloud_origin=''):
     token=secrets.token_urlsafe(32)
     origins={'http://127.0.0.1:8771','http://localhost:8771'}
-    if cloud_origin=='https://clubestrella-panel.onrender.com':origins.add(cloud_origin)
+    if cloud_origin=='https://panelgo-tablero.onrender.com':origins.add(cloud_origin)
     class Handler(BaseHTTPRequestHandler):
         def log_message(self,*args):pass
         def reply(self,status,data):
@@ -134,8 +135,9 @@ def make_control_server(control,port=8774,graphic_url='http://127.0.0.1:8771/gra
             if self.path not in ('/state','/settings'):self.reply(404,{});return
             if self.headers.get('Origin') and self.headers['Origin'] not in origins:self.reply(403,{});return
             if self.path=='/settings':self.reply(200,read_graphic_settings());return
-            try:self.reply(200,{**control.status(),'token':token})
-            except Exception:self.reply(503,{'ready':False,'enabled':False,'error':'Sin conexion con OBS'})
+            name=getattr(control,'name','OBS');local=getattr(control,'local',True)
+            try:self.reply(200,{'switcher':name,**control.status(),'local':local,'token':token})
+            except Exception:self.reply(503,{'ready':False,'enabled':False,'switcher':name,'local':local,'error':f'Sin conexion con {name}'})
         def do_POST(self):
             if self.headers.get('Origin') not in origins or not secrets.compare_digest(self.headers.get('X-Panel-Token',''),token):self.reply(403,{'error':'Origen no permitido'});return
             if self.path not in ('/visibility','/install','/settings','/virtual-camera'):self.reply(404,{});return

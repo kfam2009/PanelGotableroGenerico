@@ -102,8 +102,8 @@ class ContinuousVideo:
             check.bind(('127.0.0.1',self.port))
         source=self.discover_source()
         password=secrets.token_urlsafe(32)
-        self.auth='Basic '+base64.b64encode(('clubestrella:'+password).encode()).decode()
-        config={'api':{'listen':f'127.0.0.1:{self.port}','username':'clubestrella','password':password,'local_auth':True,
+        self.auth='Basic '+base64.b64encode(('panelgo:'+password).encode()).decode()
+        config={'api':{'listen':f'127.0.0.1:{self.port}','username':'panelgo','password':password,'local_auth':True,
                        'allow_paths':['/api','/api/ws','/api/streams']},
                 'rtsp':{'listen':''},'webrtc':{'listen':''},'log':{'level':'error'},'streams':{'game':[source]}}
         runtime=self.root/'.runtime';runtime.mkdir(exist_ok=True)

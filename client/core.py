@@ -1,4 +1,4 @@
-"""Club Estrella: OBS screenshot reader and local graphics server.
+"""Panel Go: scoreboard reader and local graphics server.
 
 The OBS allowlist below contains only queries. No scene, source or stream changes.
 """
@@ -186,7 +186,7 @@ class Feed:
     def __init__(self,args):
         self.args=args;self.lock=threading.Condition();self.revision=0
         self.values={'clock':'--:--','homeScore':'--','awayScore':'--','period':'--'}
-        self.confirmed={};self.pending={};self.connected=False;self.captured=0.;self.board=b'';self.error='Esperando OBS'
+        self.confirmed={};self.pending={};self.connected=False;self.captured=0.;self.board=b'';self.error='Esperando el tablero'
         self.last_samples={};self.digits={}
         self.board_off=False;self.dark_since=None
 
@@ -197,7 +197,7 @@ class Feed:
                        'valid':k in self.confirmed and now-self.confirmed[k]<4} for k in KEYS}
             fresh=self.connected and now-self.captured<4
             good=fresh and all(v['valid'] for v in fields.values())
-            return {**self.values,'service':'club-estrella','version':reader_module.READER_VERSION,'pid':os.getpid(),'connected':fresh,'ocrStatus':'standby' if fresh and self.board_off else 'ok' if good else 'waiting','boardOff':fresh and self.board_off,
+            return {**self.values,'service':'panelgo-tablero','version':reader_module.READER_VERSION,'pid':os.getpid(),'connected':fresh,'ocrStatus':'standby' if fresh and self.board_off else 'ok' if good else 'waiting','boardOff':fresh and self.board_off,
                     'status':'Tablero apagado · listo para iniciar' if fresh and self.board_off else 'Lectura automatica activa' if good else ('Verificando lectura del tablero' if fresh else self.error),
                     'fields':fields,'updatedAt':datetime.fromtimestamp(self.captured,timezone.utc).isoformat() if self.captured else None,
                     'boardImage':'board.png','source':self.args.source,'revision':self.revision,'digits':self.digits}
@@ -208,7 +208,7 @@ class Feed:
         out=io.BytesIO();im.crop((1360,350,1700,610)).save(out,format='PNG')
         with self.lock:
             self.board=out.getvalue();self.connected=True;self.captured=now;self.digits=digits
-            self.error='Sin capturas recientes; esperando OBS'
+            self.error='Sin capturas recientes del tablero'
             if power=='off':
                 if self.dark_since is None:self.dark_since=now
                 if now-self.dark_since>=2:
@@ -240,6 +240,8 @@ class Feed:
             self.revision+=1;self.lock.notify_all()
 
     def run(self):
+        stream=getattr(self.args,'board_stream',None)
+        if stream:return self.run_stream(stream)
         obs=None
         while True:
             try:
@@ -258,3 +260,20 @@ class Feed:
                     self.connected=False;self.dark_since=None;self.pending.clear();self.error='Sin conexion con OBS; reintentando'
                     self.revision+=1;self.lock.notify_all()
                 time.sleep(2)
+
+    def run_stream(self,stream):
+        """Board read from an SRT/RTSP stream (vMix output or IP camera)."""
+        stream.start();seen=0
+        while True:
+            try:
+                cycle_started=time.monotonic()
+                reload_reader_if_changed()
+                frame,seen=stream.latest(timeout=3,newer_than=seen)
+                self.process(frame)
+                time.sleep(max(0,self.args.interval-(time.monotonic()-cycle_started)))
+            except Exception as exc:
+                logging.warning('Video del tablero: %s',exc)
+                with self.lock:
+                    self.connected=False;self.dark_since=None;self.pending.clear();self.error='Sin video del tablero; reintentando'
+                    self.revision+=1;self.lock.notify_all()
+                time.sleep(1)

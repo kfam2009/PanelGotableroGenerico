@@ -54,7 +54,7 @@ $InstalledBat = Join-Path $PanelRoot 'PanelGo.bat'
 if ([IO.Path]::GetFullPath($env:PANELGO_BAT) -ne $InstalledBat) { Copy-Item -LiteralPath $env:PANELGO_BAT -Destination $InstalledBat -Force }
 $Desktop = [Environment]::GetFolderPath('Desktop')
 $Shell = New-Object -ComObject WScript.Shell
-$Shortcut = $Shell.CreateShortcut((Join-Path $Desktop 'Panel Go - Club Estrella.lnk'))
+$Shortcut = $Shell.CreateShortcut((Join-Path $Desktop 'Panel Go - Tablero.lnk'))
 $Shortcut.TargetPath=$InstalledBat; $Shortcut.WorkingDirectory=$PanelRoot; $Shortcut.Save()
 $ExistingReader = Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object { $_.ExecutablePath -eq $RuntimePython -and $_.CommandLine -match 'agent\.py' }
 if (-not $ExistingReader) {
@@ -64,9 +64,9 @@ if (-not $ExistingReader) {
 }
 if ($NeedsUpdate) {
     $ReaderReady = $false
-    for ($Attempt=0; $Attempt -lt 20; $Attempt++) { try { $ReaderState=Invoke-RestMethod 'http://127.0.0.1:8771/api/state' -TimeoutSec 1; $ReaderReady=$ReaderState.service -eq 'club-estrella'; if ($ReaderReady) { break } } catch {}; Start-Sleep -Milliseconds 250 }
+    for ($Attempt=0; $Attempt -lt 20; $Attempt++) { try { $ReaderState=Invoke-RestMethod 'http://127.0.0.1:8771/api/state' -TimeoutSec 1; $ReaderReady=$ReaderState.service -eq 'panelgo-tablero'; if ($ReaderReady) { break } } catch {}; Start-Sleep -Milliseconds 250 }
     if ($ReaderReady) { & $RuntimePython (Join-Path $PanelRoot 'refresh_graphic.py') }
 }
-Start-Process 'https://clubestrella-panel.onrender.com'
+Start-Process 'https://panelgo-tablero.onrender.com'
 Write-Host 'Panel Go iniciado. Abrir OBS si todavia esta cerrado.' -ForegroundColor Green
 Write-Host 'Si el navegador pregunta por la red local, permitir para ver los monitores.'

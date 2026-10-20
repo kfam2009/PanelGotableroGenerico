@@ -19,6 +19,8 @@ from types import SimpleNamespace
 from core import Feed, OBS
 from continuous_video import ContinuousVideo
 from obs_control import GraphicControl,make_bridge,make_control_server
+from stream_source import NoPreview,StreamFrames,StreamPreview,srt_url
+from vmix_control import VmixGraphicControl
 from program_preview import ProgramPreview
 
 ROOT = Path(__file__).resolve().parent
@@ -36,20 +38,37 @@ def load_config(path,local_only=False):
     token=config.get('ingest_token','')
     if not local_only and (not isinstance(token,str) or len(token)<32 or 'REPLACE_' in token):
         raise ValueError('Configurar la clave INGEST_TOKEN del servicio de Render.')
-    host=str(config.get('obs_host','127.0.0.1')).strip() or '127.0.0.1'
-    bridge=''
-    if host!='localhost':
-        try:obs_ip=ipaddress.ip_address(host)
-        except ValueError:raise ValueError('obs_host debe ser 127.0.0.1 o la IP de ZeroTier de la PC con OBS.')
-        if not obs_ip.is_loopback:
-            if not obs_ip.is_private:raise ValueError('obs_host remoto debe ser una IP privada de ZeroTier, no una IP publica.')
-            bridge=str(config.get('bridge_address','')).strip()
-            try:bridge_ip=ipaddress.ip_address(bridge)
-            except ValueError:raise ValueError('Cargar bridge_address con la IP de ZeroTier de esta PC.')
-            if bridge_ip.is_loopback or not bridge_ip.is_private or bridge_ip==obs_ip:raise ValueError('bridge_address debe ser la IP de ZeroTier de esta PC.')
-    port=int(config.get('obs_port',4455))
-    if not 1<=port<=65535:raise ValueError('Puerto OBS invalido')
-    return {**config,'cloud_url':'' if local_only else cloud,'ingest_token':token,'obs_port':port,'obs_host':host,'bridge_address':bridge}
+    switcher=str(config.get('switcher','obs')).strip().lower()
+    if switcher not in ('obs','vmix'):raise ValueError('switcher debe ser "obs" o "vmix".')
+    name='vMix' if switcher=='vmix' else 'OBS'
+    host=str(config.get('production_host') or config.get('obs_host') or '127.0.0.1').strip()
+    bridge=str(config.get('bridge_address','')).strip()
+    if host=='localhost':host='127.0.0.1'
+    try:production_ip=ipaddress.ip_address(host)
+    except ValueError:raise ValueError(f'La IP de la PC con {name} no es valida.')
+    remote=not production_ip.is_loopback and str(production_ip)!=bridge
+    if remote:
+        # Different IPs: the production PC is reached over ZeroTier.
+        if not production_ip.is_private:raise ValueError(f'La IP de {name} debe ser una IP privada de ZeroTier, no una IP publica.')
+        try:bridge_ip=ipaddress.ip_address(bridge)
+        except ValueError:raise ValueError('Cargar bridge_address con la IP de ZeroTier de esta PC.')
+        if bridge_ip.is_loopback or not bridge_ip.is_private:raise ValueError('bridge_address debe ser la IP de ZeroTier de esta PC.')
+    else:
+        # Same IP: the panel runs on the production PC.
+        host='127.0.0.1';bridge=''
+    port=int(config.get('obs_port',4455));vmix_port=int(config.get('vmix_port',8088))
+    if not 1<=port<=65535 or not 1<=vmix_port<=65535:raise ValueError('Puerto invalido')
+    board_mode=str(config.get('board_mode','stream' if switcher=='vmix' else 'obs')).strip().lower()
+    if board_mode not in ('obs','stream'):raise ValueError('board_mode debe ser "obs" o "stream".')
+    if switcher=='vmix' and board_mode=='obs':raise ValueError('Con vMix el tablero se lee por SRT o RTSP (board_mode "stream").')
+    board_url=game_url=''
+    if board_mode=='stream':
+        if not config.get('board_url'):raise ValueError('Falta board_url: la salida SRT de vMix (IP:puerto) o la camara RTSP del tablero.')
+        board_url=srt_url(str(config['board_url']),int(config.get('srt_latency_ms',400)))
+    if config.get('game_url'):game_url=srt_url(str(config['game_url']),int(config.get('srt_latency_ms',400)))
+    return {**config,'cloud_url':'' if local_only else cloud,'ingest_token':token,'obs_port':port,'obs_host':host,'production_host':host,
+            'bridge_address':bridge,'switcher':switcher,'switcher_name':name,'vmix_port':vmix_port,'vmix_overlay':int(config.get('vmix_overlay',1)),
+            'board_mode':board_mode,'board_url':board_url,'game_url':game_url}
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -88,8 +107,8 @@ class Uplink:
 
 def local_server(feed,uplink,game,port):
     page='''<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Club Estrella - Lector local</title><style>body{margin:32px auto;max-width:850px;padding:0 20px;background:#101620;color:#eef2f8;font:16px Arial}h1{color:#ffd348}section{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}section div{padding:20px 10px;background:#1d2939;border-radius:10px}strong{display:block;margin-top:12px;font-size:34px}img{width:100%;max-height:300px;object-fit:contain;background:#080b10;margin:20px 0}a{color:#76e4b2}.stale{opacity:.45}@media(max-width:500px){section{grid-template-columns:1fr 1fr}}</style>
-<h1>Club Estrella · lector local</h1><p id="status">Conectando con OBS local...</p><p id="cloud"></p>
+<title>Panel Go - Lector local</title><style>body{margin:32px auto;max-width:850px;padding:0 20px;background:#101620;color:#eef2f8;font:16px Arial}h1{color:#ffd348}section{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}section div{padding:20px 10px;background:#1d2939;border-radius:10px}strong{display:block;margin-top:12px;font-size:34px}img{width:100%;max-height:300px;object-fit:contain;background:#080b10;margin:20px 0}a{color:#76e4b2}.stale{opacity:.45}@media(max-width:500px){section{grid-template-columns:1fr 1fr}}</style>
+<h1>Panel Go · lector local</h1><p id="status">Conectando con OBS local...</p><p id="cloud"></p>
 <section><div>Reloj<strong id="clock">--:--</strong></div><div>Local<strong id="homeScore">--</strong></div><div>Visita<strong id="awayScore">--</strong></div><div>Período<strong id="period">--</strong></div></section>
 <style>.monitors{display:grid;grid-template-columns:1fr 1.7fr;gap:15px;margin-top:24px}.monitors figure{margin:0;min-width:0}.monitors img{height:240px;object-fit:contain;margin:8px 0;background:#050505}figcaption{font-weight:bold}#gameStatus{font-size:12px;font-weight:normal}club-game{display:block;height:240px;background:#050505;margin:8px 0}club-game video{object-fit:contain}@media(max-width:520px){.monitors{grid-template-columns:1fr}}</style>
 <div class="monitors"><figure><figcaption>Tablero</figcaption><img id="board" alt="Última captura del tablero"></figure><figure><figcaption>Juego <span id="gameStatus">Conectando video continuo</span></figcaption><club-game data-enabled="true" aria-label="Video continuo del juego"></club-game></figure></div>
@@ -135,7 +154,7 @@ def local_server(feed,uplink,game,port):
             elif route=='/board.png':
                 with feed.lock:data=feed.board
                 kind='image/png'
-            elif route=='/game.jpg' and isinstance(game,ProgramPreview):
+            elif route=='/game.jpg' and hasattr(game,'image'):
                 with game.lock:data=game.image
                 kind='image/jpeg'
             elif route in ('/video-monitor.js','/vendor/video-rtc.js'):
@@ -163,26 +182,36 @@ def main():
     try:config=load_config(args.config,args.local_only)
     except Exception as exc:raise SystemExit('Configuracion invalida: '+str(exc))
     os.environ['OBS_PASSWORD']=config.get('obs_password','')
+    name=config['switcher_name']
+    board_stream=StreamFrames(config['board_url'],ffmpeg=config.get('ffmpeg_path','')) if config['board_mode']=='stream' else None
     feed=Feed(SimpleNamespace(host=config['obs_host'],obs_port=config['obs_port'],source=config.get('source','Camara 2'),game_source=config.get('game_source','camara 01'),interval=.2,
-                             game_rtsp=config.get('game_rtsp',''),video_port=int(config.get('video_port',1987))))
+                             game_rtsp=config.get('game_rtsp',''),video_port=int(config.get('video_port',1987)),board_stream=board_stream))
     uplink=Uplink(feed,config)
-    game=ContinuousVideo(feed.args,OBS,ROOT) if config.get('monitor_mode','program')=='camera' else ProgramPreview(feed.args,OBS)
+    if config['game_url']:game=StreamPreview(config['game_url'],f'Salida de {name}',ffmpeg=config.get('ffmpeg_path',''))
+    elif config['switcher']=='vmix':game=NoPreview('Sin monitor: cargar game_url con una salida SRT del programa de vMix')
+    elif config.get('monitor_mode','program')=='camera':game=ContinuousVideo(feed.args,OBS,ROOT)
+    else:game=ProgramPreview(feed.args,OBS)
     port=int(config.get('local_port',8771))
     server=local_server(feed,uplink,game,port)
     control_server=None
+    if config['switcher']=='vmix':control=VmixGraphicControl(config['production_host'],config['vmix_port'],config['vmix_overlay'])
+    else:control=GraphicControl(config['obs_host'],config['obs_port'])
+    control.local=not config['bridge_address']
     try:
         graphic_url=f'http://127.0.0.1:{port}/graphics.html'
         if config['bridge_address']:
             web=ROOT.parent/'public'
             if not web.is_dir():web=ROOT/'panel'
-            try:bridge=make_bridge(config['bridge_address'],8772,config['obs_host'],web,local_port=port)
+            try:bridge=make_bridge(config['bridge_address'],8772,config['production_host'],web,local_port=port)
             except OSError:raise SystemExit(f"No se pudo abrir {config['bridge_address']}:8772. Revisar que ZeroTier este conectado y que esa sea la IP de esta PC.")
             threading.Thread(target=bridge.serve_forever,daemon=True).start()
             graphic_url=f"http://{config['bridge_address']}:8772/graphics.html"
-            print(f"OBS remoto {config['obs_host']} · salida para OBS en {graphic_url}",flush=True)
-        control_server=make_control_server(GraphicControl(config['obs_host'],config['obs_port']),graphic_url=graphic_url,cloud_origin=config.get('cloud_url',''))
+            print(f"{name} remoto {config['production_host']} · grafica para {name} en {graphic_url}",flush=True)
+        else:print(f'{name} en esta PC',flush=True)
+        if board_stream:print('Tablero por video: '+config['board_url'].split('?',1)[0],flush=True)
+        control_server=make_control_server(control,graphic_url=graphic_url,cloud_origin=config.get('cloud_url',''))
         threading.Thread(target=control_server.serve_forever,daemon=True).start()
-    except OSError:logging.info('El control OBS ya esta abierto o su puerto no esta disponible.')
+    except OSError:logging.info('El control de la grafica ya esta abierto o su puerto no esta disponible.')
     threading.Thread(target=feed.run,daemon=True).start()
     if not args.local_only:threading.Thread(target=uplink.run,daemon=True).start()
     else:uplink.message='Panel local · activo'
@@ -194,6 +223,7 @@ def main():
     except KeyboardInterrupt:pass
     finally:
         game.close();server.server_close()
+        if board_stream:board_stream.close()
         if control_server:control_server.shutdown();control_server.server_close()
 
 
