@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { EventEmitter } from 'node:events';
+import { issueCode, verifyCode, Attempts, MAX_DAYS } from './license.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -11,6 +12,7 @@ const KEYS = ['clock', 'homeScore', 'awayScore', 'period'];
 const DEFAULTS = { clock: '--:--', homeScore: '--', awayScore: '--', period: '--' };
 const ASSETS = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
+  ['/admin', ['admin.html', 'text/html; charset=utf-8']],
   ...['index.html', 'graphics.html'].map(n => ['/' + n, [n, 'text/html; charset=utf-8']]),
   ['/script.js', ['script.js', 'text/javascript; charset=utf-8']],
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
@@ -87,8 +89,9 @@ function json(res, status, data) {
   res.end(JSON.stringify(data));
 }
 
-export function createHandler({ token, store = new ScoreStore() }) {
+export function createHandler({ token, store = new ScoreStore(), licenseSecret = '', adminKey = '', now = () => Date.now(), attempts = new Attempts() }) {
   const streams = new Set();
+  const licensing = licenseSecret.length >= 32 && adminKey.length >= 16;
   const handler = async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
@@ -101,6 +104,29 @@ export function createHandler({ token, store = new ScoreStore() }) {
         const body = await jsonBody(req);
         try { store.accept(body); } catch (e) { return json(res, 400, { error: e.message }); }
         return json(res, 200, { ok: true, revision: store.revision });
+      }
+      if (req.method === 'POST' && url.pathname === '/api/license/activate') {
+        if (!licensing) return json(res, 503, { error: 'Licencias no configuradas en el servidor' });
+        const ip = String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
+        if (!attempts.allow(ip)) return json(res, 429, { error: 'Demasiados intentos; esperar un minuto' });
+        const body = await jsonBody(req);
+        const result = verifyCode(licenseSecret, body?.code, now());
+        if (!result.ok) return json(res, 403, { error: result.error });
+        const remaining = Math.floor((result.expiresAt - now()) / 1000);
+        return json(res, 200, { ok: true, expiresAt: new Date(result.expiresAt).toISOString(), serverTime: new Date(now()).toISOString(), remaining });
+      }
+      if (req.method === 'POST' && url.pathname === '/api/admin/code') {
+        if (!licensing) return json(res, 503, { error: 'Licencias no configuradas: faltan LICENSE_SECRET y ADMIN_KEY en Render' });
+        if (!attempts.allow('admin')) return json(res, 429, { error: 'Demasiados intentos; esperar un minuto' });
+        if (!authorized(req.headers.authorization, adminKey)) return json(res, 401, { error: 'Clave de administrador incorrecta' });
+        const body = await jsonBody(req);
+        const expiresAt = Date.parse(body?.expiresAt);
+        if (!Number.isFinite(expiresAt) || expiresAt <= now()) return json(res, 400, { error: 'La fecha de vencimiento tiene que ser futura' });
+        if (expiresAt - now() > MAX_DAYS * 86400000) return json(res, 400, { error: `Máximo ${MAX_DAYS} días por código` });
+        const club = String(body?.club ?? '').slice(0, 80);
+        const code = issueCode(licenseSecret, expiresAt);
+        console.log(`Codigo emitido · ${club || 'sin club'} · vence ${new Date(expiresAt).toISOString()}`);
+        return json(res, 200, { code, club, expiresAt: new Date(Math.ceil(expiresAt / 60000) * 60000).toISOString() });
       }
       if (req.method === 'GET' && ['/api/state', '/live-state.json'].includes(url.pathname)) return json(res, 200, store.snapshot());
       if (req.method === 'GET' && url.pathname === '/api/events') {
@@ -133,7 +159,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.error('Configurar INGEST_TOKEN con una clave privada de al menos 32 caracteres.');
     process.exitCode = 1;
   } else {
-    const app = createHandler({ token });
+    const licenseSecret = process.env.LICENSE_SECRET || '', adminKey = process.env.ADMIN_KEY || '';
+    if (licenseSecret.length < 32 || adminKey.length < 16) console.warn('Licencias desactivadas: configurar LICENSE_SECRET (32+) y ADMIN_KEY (16+).');
+    const app = createHandler({ token, licenseSecret, adminKey });
     const server = http.createServer(app.handler);
     server.requestTimeout = 15000; server.headersTimeout = 10000;
     const port = Number(process.env.PORT || 10000);

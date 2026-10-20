@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Panel Go · Códigos de partido</title>
+<style>
+  :root{--bg:#15161a;--card:#202227;--line:#33363e;--text:#f2f3f5;--muted:#a3a7b0;--red:#d6221e;--ok:#3ccf7a}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+  main{max-width:640px;margin:0 auto;padding:28px 16px 48px}
+  header{display:flex;align-items:center;gap:14px;margin-bottom:22px}
+  header img{height:56px;border-radius:10px}
+  h1{font-size:22px;margin:0}
+  header span{color:var(--muted);font-size:14px}
+  section{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:16px}
+  label{display:block;font-size:13px;color:var(--muted);margin:0 0 6px}
+  input{width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:#121317;color:var(--text);font-size:16px}
+  .field{margin-bottom:14px}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+  .chips button{background:#121317;color:var(--text);border:1px solid var(--line);border-radius:999px;padding:8px 14px;font-size:14px;cursor:pointer}
+  .chips button[aria-pressed=true]{border-color:var(--red);background:#2a1514}
+  .primary{width:100%;padding:14px;border:0;border-radius:12px;background:var(--red);color:#fff;font-size:17px;font-weight:700;cursor:pointer}
+  .primary:disabled{opacity:.5}
+  #error{color:#ff7a75;min-height:1.4em;margin:10px 0 0}
+  #result[hidden]{display:none}
+  .code{font:700 clamp(17px,5.4vw,28px)/1.2 ui-monospace,Consolas,monospace;letter-spacing:1px;text-align:center;padding:16px 8px;background:#121317;border-radius:12px;border:1px dashed var(--red);white-space:nowrap;overflow-x:auto}
+  .meta{color:var(--muted);text-align:center;margin:10px 0 14px}
+  .row{display:flex;gap:10px}
+  .row>*{flex:1;text-align:center;text-decoration:none;padding:12px;border-radius:10px;border:1px solid var(--line);background:#121317;color:var(--text);font-size:15px;cursor:pointer}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:600}
+  td code{font-family:ui-monospace,Consolas,monospace}
+  .expired{opacity:.45}
+  h2{font-size:16px;margin:0 0 12px}
+  small{color:var(--muted)}
+</style>
+</head>
+<body>
+<main>
+  <header><img src="assets/panelgo-logo.png" alt="Panel Go"><div><h1>Códigos de partido</h1><span>Habilitá el panel de un club por partido</span></div></header>
+
+  <section>
+    <div class="field"><label for="key">Clave de administrador (ADMIN_KEY de Render)</label><input id="key" type="password" autocomplete="current-password"></div>
+    <div class="field"><label for="club">Club</label><input id="club" placeholder="Ej: Club Estrella" maxlength="80"></div>
+    <label>Vence</label>
+    <div class="chips" id="presets">
+      <button type="button" data-preset="midnight" aria-pressed="true">Hoy a medianoche</button>
+      <button type="button" data-preset="4h" aria-pressed="false">En 4 horas</button>
+      <button type="button" data-preset="24h" aria-pressed="false">En 24 horas</button>
+      <button type="button" data-preset="7d" aria-pressed="false">En 7 días</button>
+      <button type="button" data-preset="30d" aria-pressed="false">En 30 días</button>
+    </div>
+    <div class="field"><input id="until" type="datetime-local" aria-label="Fecha y hora de vencimiento"></div>
+    <button class="primary" id="generate" type="button">Generar código</button>
+    <p id="error" role="alert"></p>
+  </section>
+
+  <section id="result" hidden>
+    <div class="code" id="code"></div>
+    <p class="meta" id="codeMeta"></p>
+    <div class="row"><button type="button" id="copy">Copiar mensaje</button><a id="whatsapp" target="_blank" rel="noopener">Enviar por WhatsApp</a></div>
+  </section>
+
+  <section>
+    <h2>Últimos códigos</h2>
+    <table><thead><tr><th>Club</th><th>Código</th><th>Vence</th></tr></thead><tbody id="history"></tbody></table>
+    <small>Se guardan solo en este navegador.</small>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const store = {get(k,d){try{return JSON.parse(localStorage.getItem(k))??d}catch{return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}};
+const pad = n => String(n).padStart(2,'0');
+const toLocalInput = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const pretty = iso => new Date(iso).toLocaleString('es-AR',{weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+
+function preset(name){
+  const d = new Date();
+  if (name==='midnight') d.setHours(23,59,0,0);
+  if (name==='4h') d.setHours(d.getHours()+4);
+  if (name==='24h') d.setHours(d.getHours()+24);
+  if (name==='7d') d.setDate(d.getDate()+7);
+  if (name==='30d') d.setDate(d.getDate()+30);
+  $('until').value = toLocalInput(d);
+  for (const b of $('presets').children) b.setAttribute('aria-pressed', String(b.dataset.preset===name));
+}
+$('presets').addEventListener('click', e => { if (e.target.dataset.preset) preset(e.target.dataset.preset); });
+$('until').addEventListener('input', () => { for (const b of $('presets').children) b.setAttribute('aria-pressed','false'); });
+preset('midnight');
+$('key').value = store.get('panelgo-admin-key','');
+$('club').value = store.get('panelgo-last-club','');
+
+function renderHistory(){
+  const rows = store.get('panelgo-codes',[]), now = Date.now();
+  $('history').innerHTML = '';
+  for (const r of rows) {
+    const tr = document.createElement('tr'); if (Date.parse(r.expiresAt) < now) tr.className = 'expired';
+    for (const [text,mono] of [[r.club||'—',false],[r.code,true],[pretty(r.expiresAt),false]]) {
+      const td = document.createElement('td');
+      if (mono) { const c = document.createElement('code'); c.textContent = text; td.append(c); } else td.textContent = text;
+      tr.append(td);
+    }
+    $('history').append(tr);
+  }
+}
+renderHistory();
+
+let message = '';
+$('generate').addEventListener('click', async () => {
+  $('error').textContent = ''; $('generate').disabled = true; $('generate').textContent = 'Generando… (si el servidor dormía puede tardar un minuto)';
+  try {
+    const until = new Date($('until').value);
+    if (isNaN(until)) throw new Error('Elegí la fecha y hora de vencimiento');
+    const key = $('key').value.trim(), club = $('club').value.trim();
+    const r = await fetch('api/admin/code',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({club,expiresAt:until.toISOString()}),signal:AbortSignal.timeout(90000)});
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || 'Error '+r.status);
+    store.set('panelgo-admin-key', key); store.set('panelgo-last-club', club);
+    store.set('panelgo-codes', [data, ...store.get('panelgo-codes',[])].slice(0,30));
+    $('code').textContent = data.code;
+    $('codeMeta').textContent = (data.club ? data.club+' · ' : '') + 'vence ' + pretty(data.expiresAt);
+    message = `Código Panel Go${data.club ? ' para '+data.club : ''}: ${data.code}\nVálido hasta ${pretty(data.expiresAt)}.\nIngresalo en el panel al iniciar.`;
+    $('whatsapp').href = 'https://wa.me/?text=' + encodeURIComponent(message);
+    $('result').hidden = false; renderHistory();
+  } catch (e) { $('error').textContent = e.name==='TimeoutError' ? 'El servidor no respondió; probá de nuevo' : e.message; }
+  finally { $('generate').disabled = false; $('generate').textContent = 'Generar código'; }
+});
+$('copy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(message); $('copy').textContent = 'Copiado'; setTimeout(() => $('copy').textContent = 'Copiar mensaje', 1500); }
+  catch { prompt('Copiá el mensaje:', message); }
+});
+</script>
+</body>
+</html>

@@ -196,6 +196,22 @@ class Feed:
         self.confirmed={};self.pending={};self.connected=False;self.captured=0.;self.board=b'';self.error='Esperando el tablero'
         self.last_samples={};self.digits={};self.frame=None
         self.board_off=False;self.dark_since=None
+        self.gate=None;self.locked=False
+
+    def held(self):
+        """True while the license gate blocks reading; the graphic then shows no score."""
+        reason=self.gate() if self.gate else None
+        if reason is None:
+            if self.locked:
+                with self.lock:self.locked=False;self.error='Esperando el tablero';self.revision+=1;self.lock.notify_all()
+            return False
+        with self.lock:
+            if not self.locked or self.error!=reason:
+                self.locked=True;self.connected=False;self.error=reason
+                self.values={k:'--:--' if k=='clock' else '--' for k in KEYS}
+                self.confirmed.clear();self.pending.clear();self.last_samples.clear();self.board_off=False;self.dark_since=None
+                self.revision+=1;self.lock.notify_all()
+        return True
 
     def snapshot(self):
         now=time.time()
@@ -255,6 +271,7 @@ class Feed:
         obs=None
         while True:
             try:
+                if self.held():time.sleep(1);continue
                 cycle_started=time.monotonic()
                 reload_reader_if_changed()
                 if obs is None:obs=OBS(self.args.host,self.args.obs_port,os.environ.get('OBS_PASSWORD',''))
@@ -276,6 +293,7 @@ class Feed:
         stream.start();seen=0
         while True:
             try:
+                if self.held():time.sleep(1);continue
                 cycle_started=time.monotonic()
                 reload_reader_if_changed()
                 frame,seen=stream.latest(timeout=3,newer_than=seen)
