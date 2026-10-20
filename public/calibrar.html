@@ -98,7 +98,7 @@ const canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d',{willR
 const hint=document.getElementById('hint'),statusBox=document.getElementById('status');
 const image=new Image();let imageReady=false;
 let cal={view:[1360,350,1700,610],groups:{},color:'red',threshold:180};
-let showFull=false, mode=null, drag=null, live={};
+let showFull=false, mode=null, drag=null, live={}, hasView=true;
 
 function setStatus(text,kind){statusBox.textContent=text;statusBox.className='status'+(kind?' '+kind:'');}
 function viewRect(){return showFull?[0,0,FRAME_W,FRAME_H]:cal.view;}
@@ -134,7 +134,7 @@ function draw(){
       ctx.putImageData(data,0,0);
     }
   }
-  if(showFull){
+  if(showFull&&hasView){
     const [a,b]=[toCanvas([cal.view[0],cal.view[1]]),toCanvas([cal.view[2],cal.view[3]])];
     ctx.strokeStyle='#fff';ctx.setLineDash([8,6]);ctx.lineWidth=2;ctx.strokeRect(a[0],a[1],b[0]-a[0],b[1]-a[1]);ctx.setLineDash([]);
   }
@@ -200,7 +200,7 @@ function arm(key){
   hint.textContent=mode==='view'?'Arrastrá un rectángulo alrededor del tablero.':mode?`Arrastrá un rectángulo sobre los dígitos de ${GROUPS.find(g=>g.key===mode).label.toLowerCase()}.`:'Arrastrá las esquinas para ajustar. Elegí un grupo para marcarlo de nuevo.';
   renderGroups();draw();
 }
-document.getElementById('markView').addEventListener('click',()=>{showFull=true;mode='view';hint.textContent='Arrastrá un rectángulo alrededor del tablero.';renderGroups();draw();});
+document.getElementById('markView').addEventListener('click',()=>{showFull=true;mode='view';document.getElementById('toggleView').textContent='Ver zona del tablero';hint.textContent='Arrastrá un rectángulo alrededor del tablero.';renderGroups();draw();});
 document.getElementById('toggleView').addEventListener('click',e=>{showFull=!showFull;e.target.textContent=showFull?'Ver zona del tablero':'Ver cuadro completo';if(!showFull&&mode==='view')mode=null;draw();});
 
 function nearestCorner(point){
@@ -226,7 +226,7 @@ canvas.addEventListener('pointerup',()=>{
   if(drag&&drag.kind==='rect'){
     const x0=Math.min(drag.start[0],drag.end[0]),x1=Math.max(drag.start[0],drag.end[0]),y0=Math.min(drag.start[1],drag.end[1]),y1=Math.max(drag.start[1],drag.end[1]);
     if(x1-x0>4&&y1-y0>4){
-      if(mode==='view'){cal.view=[Math.round(x0),Math.round(y0),Math.round(x1),Math.round(y1)];showFull=false;document.getElementById('toggleView').textContent='Ver cuadro completo';}
+      if(mode==='view'){hasView=true;cal.view=[Math.round(x0),Math.round(y0),Math.round(x1),Math.round(y1)];showFull=false;document.getElementById('toggleView').textContent='Ver cuadro completo';}
       else{
         const digits=cal.groups[mode]?.digits||(mode==='clock'?4:mode==='period'?1:pendingDigits[mode]);
         cal.groups[mode]={quad:[[x0,y0],[x1,y0],[x1,y1],[x0,y1]],digits};
@@ -269,14 +269,20 @@ function loadFrame(){
   next.onerror=()=>{hint.textContent='Sin imagen del tablero. Revisá que el lector reciba video.';setTimeout(loadFrame,1500);};
   next.src='/frame.jpg?t='+Date.now();
 }
-image.onload=()=>{if(!imageReady){imageReady=true;arm(Object.keys(cal.groups).length?null:'clock');}draw();setTimeout(loadFrame,800);};
+image.onload=()=>{imageReady=true;draw();setTimeout(loadFrame,800);};
 
 async function pollState(){
   try{const r=await fetch('/api/state',{cache:'no-store'});live=await r.json();updateReadings();if(!drag)draw();}catch{}
   setTimeout(pollState,700);
 }
 fetch('/api/calibration').then(r=>r.json()).then(data=>{cal=data.calibration;syncInputs();renderGroups();draw();loadFrame();pollState();
-  if(!data.calibrated)setStatus('Mostrando la calibración original de ejemplo. Marcá tu tablero y guardá.');});
+  if(!data.calibrated){
+    // First calibration: start on the whole camera frame, ready to mark the board zone.
+    cal.groups={};hasView=false;showFull=true;mode='view';renderGroups();
+    document.getElementById('toggleView').textContent='Ver zona del tablero';
+    hint.textContent='Paso 1: arrastrá un rectángulo alrededor del tablero.';
+    setStatus('Todavía no hay calibración para este tablero.');draw();
+  }});
 })();
 </script>
 </body>
