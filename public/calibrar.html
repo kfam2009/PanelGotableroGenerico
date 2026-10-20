@@ -195,12 +195,13 @@ function updateReadings(){
   }
 }
 function arm(key){
-  mode=mode===key?null:key;
+  mode=key;
   if(mode&&mode!=='view'&&showFull){showFull=false;}
   hint.textContent=mode==='view'?'Arrastrá un rectángulo alrededor del tablero.':mode?`Arrastrá un rectángulo sobre los dígitos de ${GROUPS.find(g=>g.key===mode).label.toLowerCase()}.`:'Arrastrá las esquinas para ajustar. Elegí un grupo para marcarlo de nuevo.';
   renderGroups();draw();
 }
-document.getElementById('markView').addEventListener('click',()=>{showFull=true;mode='view';document.getElementById('toggleView').textContent='Ver zona del tablero';hint.textContent='Arrastrá un rectángulo alrededor del tablero.';renderGroups();draw();});
+document.getElementById('markView').addEventListener('click',()=>{showFull=true;mode='view';document.addEventListener('keydown',e=>{if(e.key==='Escape'&&mode){drag=null;arm(null);}});
+document.getElementById('toggleView').textContent='Ver zona del tablero';hint.textContent='Arrastrá un rectángulo alrededor del tablero.';renderGroups();draw();});
 document.getElementById('toggleView').addEventListener('click',e=>{showFull=!showFull;e.target.textContent=showFull?'Ver zona del tablero':'Ver cuadro completo';if(!showFull&&mode==='view')mode=null;draw();});
 
 function nearestCorner(point){
