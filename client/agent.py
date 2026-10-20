@@ -192,7 +192,8 @@ def main():
     elif config.get('monitor_mode','program')=='camera':game=ContinuousVideo(feed.args,OBS,ROOT)
     else:game=ProgramPreview(feed.args,OBS)
     port=int(config.get('local_port',8771))
-    server=local_server(feed,uplink,game,port)
+    try:server=local_server(feed,uplink,game,port)
+    except OSError:raise SystemExit(f'El puerto {port} ya esta en uso: hay otro panel o lector abierto (por ejemplo el de Club Estrella). Cerrar esa consola y volver a ejecutar INICIAR.cmd.')
     control_server=None
     if config['switcher']=='vmix':control=VmixGraphicControl(config['production_host'],config['vmix_port'],config['vmix_overlay'])
     else:control=GraphicControl(config['obs_host'],config['obs_port'])
