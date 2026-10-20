@@ -24,8 +24,11 @@ from obs_control import GraphicControl,make_bridge,make_control_server
 from stream_source import NoPreview,StreamFrames,StreamPreview,srt_url
 from vmix_control import VmixGraphicControl
 from program_preview import ProgramPreview
+from license import DEFAULT_LICENSE_URL,License,expiry_label
 
 ROOT = Path(__file__).resolve().parent
+# Shown over the local panel until the match code is validated.
+LICENSE_UI = (ROOT/'license_ui.html').read_text(encoding='utf-8')
 
 
 def load_config(path,local_only=False):
@@ -70,7 +73,10 @@ def load_config(path,local_only=False):
         if not config.get('board_url'):raise ValueError('Falta board_url: la salida SRT de vMix (IP:puerto) o la camara RTSP del tablero.')
         board_url=srt_url(str(config['board_url']),latency)
     if config.get('game_url'):game_url=srt_url(str(config['game_url']),latency)
-    return {**config,'cloud_url':'' if local_only else cloud,'ingest_token':token,'obs_port':port,'obs_host':host,'production_host':host,
+    license_url=str(config.get('license_url') or DEFAULT_LICENSE_URL).strip().rstrip('/')
+    parts=urllib.parse.urlsplit(license_url)
+    if parts.scheme!='https' and parts.hostname not in ('localhost','127.0.0.1'):raise ValueError('license_url debe usar https://')
+    return {**config,'license_url':license_url,'cloud_url':'' if local_only else cloud,'ingest_token':token,'obs_port':port,'obs_host':host,'production_host':host,
             'bridge_address':bridge,'switcher':switcher,'switcher_name':name,'vmix_port':vmix_port,'vmix_overlay':int(config.get('vmix_overlay',1)),
             'board_mode':board_mode,'board_url':board_url,'game_url':game_url}
 
@@ -109,7 +115,7 @@ class Uplink:
             if self.message!='Datos enviados a Render':time.sleep(1)
 
 
-def local_server(feed,uplink,game,port):
+def local_server(feed,uplink,game,port,license=None):
     page='''<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Panel Go - Lector local</title><style>body{margin:32px auto;max-width:850px;padding:0 20px;background:#101620;color:#eef2f8;font:16px Arial}h1{color:#ffd348}section{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}section div{padding:20px 10px;background:#1d2939;border-radius:10px}strong{display:block;margin-top:12px;font-size:34px}img{width:100%;max-height:300px;object-fit:contain;background:#080b10;margin:20px 0}a{color:#76e4b2}.stale{opacity:.45}@media(max-width:500px){section{grid-template-columns:1fr 1fr}}</style>
 <h1>Panel Go · lector local</h1><p id="status">Conectando con OBS local...</p><p id="cloud"></p>
@@ -128,6 +134,7 @@ def local_server(feed,uplink,game,port):
         monitors='<div class="camera-pair"><figure><figcaption>01 / Tablero <small>Lectura automática</small></figcaption><div class="camera-image"><img id="boardPreview" alt="Captura del tablero" hidden></div></figure><figure><figcaption><span id="gameLabel">02 / Salida de OBS</span> <small id="gameStatus">Conectando</small></figcaption><div class="camera-image"><club-game id="gameVideo" aria-label="Video continuo del juego"></club-game><img id="gamePreview" hidden alt="Cámara del juego"></div></figure></div>'
         page=re.sub(r'<div class="cloud-note">.*?</div>',monitors,page,flags=re.S)
         page=page.replace('<script src="script.js','<script type="module" src="/video-monitor.js"></script><script src="script.js')
+    if license:page=page.replace('</body>',LICENSE_UI+'</body>') if '</body>' in page else page+LICENSE_UI
     cloud_origin=uplink.config.get('cloud_url','').rstrip('/')
     allowed_origins={f'http://127.0.0.1:{port}',f'http://localhost:{port}'}
     if cloud_origin.startswith('https://'):allowed_origins.add(cloud_origin)
@@ -149,6 +156,16 @@ def local_server(feed,uplink,game,port):
         def do_POST(self):
             # Calibration changes only from the panel served by this same reader.
             if self.headers.get('Origin') not in (f'http://127.0.0.1:{self.server.server_port}',f'http://localhost:{self.server.server_port}'):self.send_error(403);return
+            if self.path=='/api/license' and license:
+                try:
+                    length=int(self.headers.get('Content-Length','0'))
+                    if not 0<length<=2000:raise ValueError('Pedido invalido')
+                    status,result=200,license.activate(json.loads(self.rfile.read(length)).get('code'))
+                    print('Partido habilitado hasta '+expiry_label(result['expiresAt']),flush=True)
+                except Exception as exc:status,result=400,{'error':str(exc) if isinstance(exc,ValueError) else 'No se pudo validar el codigo'}
+                data=json.dumps(result).encode()
+                self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
+                return
             if self.path!='/api/calibration':self.send_error(404);return
             try:
                 length=int(self.headers.get('Content-Length','0'))
@@ -168,7 +185,10 @@ def local_server(feed,uplink,game,port):
             if route in ('/','/index.html'):data=page.encode();kind='text/html; charset=utf-8'
             elif route=='/api/state':
                 state=feed.snapshot();state.update(game.snapshot());state['uplink']=uplink.message
+                if license:state['license']=license.snapshot()
                 data=json.dumps(state).encode();kind='application/json'
+            elif route=='/api/license':
+                data=json.dumps(license.snapshot() if license else {'active':True,'message':'Sin licencia'}).encode();kind='application/json'
             elif route=='/api/calibration':
                 data=json.dumps({'calibration':core.reader_module.current_calibration(),'calibrated':core.reader_module.CALIBRATED}).encode();kind='application/json'
             elif route=='/frame.jpg':
@@ -213,12 +233,15 @@ def main():
     feed=Feed(SimpleNamespace(host=config['obs_host'],obs_port=config['obs_port'],source=config.get('source','Camara 2'),game_source=config.get('game_source','camara 01'),interval=.125 if config['board_mode']=='stream' else .2,
                              game_rtsp=config.get('game_rtsp',''),video_port=int(config.get('video_port',1987)),board_stream=board_stream,board_crop=config.get('board_crop')))
     uplink=Uplink(feed,config)
+    license=License(config['license_url'],ROOT/'.licencia.json')
+    feed.gate=license.blocked
+    threading.Thread(target=license.resume,daemon=True).start()
     if config['game_url']:game=StreamPreview(config['game_url'],f'Salida de {name}',ffmpeg=config.get('ffmpeg_path',''))
     elif config['switcher']=='vmix':game=NoPreview('Sin monitor: cargar game_url con una salida SRT del programa de vMix')
     elif config.get('monitor_mode','program')=='camera':game=ContinuousVideo(feed.args,OBS,ROOT)
     else:game=ProgramPreview(feed.args,OBS)
     port=int(config.get('local_port',8771))
-    try:server=local_server(feed,uplink,game,port)
+    try:server=local_server(feed,uplink,game,port,license)
     except OSError:raise SystemExit(f'El puerto {port} ya esta en uso: hay otro panel o lector abierto (por ejemplo el de Club Estrella). Cerrar esa consola y volver a ejecutar INICIAR.cmd.')
     control_server=None
     if config['switcher']=='vmix':control=VmixGraphicControl(config['production_host'],config['vmix_port'],config['vmix_overlay'])
@@ -245,6 +268,7 @@ def main():
     threading.Thread(target=game.run,daemon=True).start()
     address=f'http://127.0.0.1:{port}/'
     print('Lector activo: '+address,flush=True)
+    print('Para habilitar el partido, ingresar el codigo en el panel.',flush=True)
     if not args.no_browser:webbrowser.open(address)
     try:server.serve_forever()
     except KeyboardInterrupt:pass

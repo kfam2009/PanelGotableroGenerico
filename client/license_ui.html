@@ -1,0 +1,54 @@
+<style>
+#pgLicense{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;background:rgba(8,9,12,.82);backdrop-filter:blur(4px);font-family:system-ui,"Segoe UI",Arial,sans-serif}
+#pgLicense.show{display:flex}
+#pgLicense form{width:min(420px,calc(100% - 32px));background:#1d1f24;border:1px solid #393c44;border-radius:16px;padding:24px;color:#f2f3f5;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+#pgLicense img{height:64px;border-radius:10px}
+#pgLicense h2{margin:12px 0 4px;font-size:20px}
+#pgLicense p{margin:0 0 16px;color:#a3a7b0;font-size:14px}
+#pgLicense input{width:100%;box-sizing:border-box;padding:13px;border-radius:10px;border:1px solid #393c44;background:#111216;color:#fff;font:600 18px ui-monospace,Consolas,monospace;letter-spacing:1px;text-align:center;text-transform:uppercase}
+#pgLicense button{width:100%;margin-top:12px;padding:13px;border:0;border-radius:10px;background:#d6221e;color:#fff;font-size:16px;font-weight:700;cursor:pointer}
+#pgLicense button:disabled{opacity:.6}
+#pgLicense #pgLicenseMsg{min-height:1.3em;margin:12px 0 0;color:#ff8a85}
+#pgLicenseBadge{position:fixed;right:14px;bottom:14px;z-index:9998;display:none;padding:7px 12px;border-radius:999px;background:#13251a;border:1px solid #2f7d4c;color:#8ff0b5;font:600 12px system-ui,Arial,sans-serif}
+</style>
+<div id="pgLicense" role="dialog" aria-modal="true" aria-labelledby="pgLicenseTitle"><form>
+  <img src="assets/panelgo-logo.png" alt="Panel Go">
+  <h2 id="pgLicenseTitle">Habilitar partido</h2>
+  <p>Ingresá el código que te pasó Panel Go para este partido.</p>
+  <input id="pgLicenseCode" autocomplete="off" spellcheck="false" placeholder="XXXXX-XXXXX-XXXXX-XXXXX" maxlength="40" aria-label="Código del partido">
+  <button type="submit">Habilitar</button>
+  <p id="pgLicenseMsg" role="status"></p>
+</form></div>
+<div id="pgLicenseBadge"></div>
+<script>
+(() => {
+  const box = document.getElementById('pgLicense'), form = box.querySelector('form'), input = document.getElementById('pgLicenseCode');
+  const msg = document.getElementById('pgLicenseMsg'), badge = document.getElementById('pgLicenseBadge'), button = form.querySelector('button');
+  let sending = false;
+  const until = iso => new Date(iso).toLocaleString('es-AR', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
+  function show(s) {
+    if (s.active) {
+      box.classList.remove('show'); badge.style.display = 'block'; badge.textContent = 'Partido habilitado hasta ' + until(s.expiresAt);
+      return;
+    }
+    badge.style.display = 'none';
+    if (!box.classList.contains('show')) { box.classList.add('show'); setTimeout(() => input.focus(), 50); }
+    if (!sending) msg.textContent = s.busy ? 'Validando el código guardado...' : (s.message || '');
+  }
+  async function poll() {
+    try { const r = await fetch('/api/license', {cache:'no-store'}); show(await r.json()); }
+    catch {} finally { setTimeout(poll, 3000); }
+  }
+  form.addEventListener('submit', async e => {
+    e.preventDefault(); sending = true; button.disabled = true; msg.textContent = 'Validando... (puede tardar hasta un minuto)';
+    try {
+      const r = await fetch('/api/license', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({code:input.value}), signal:AbortSignal.timeout(90000)});
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'No se pudo validar');
+      msg.textContent = ''; input.value = ''; show(d);
+    } catch (err) { msg.textContent = err.name === 'TimeoutError' ? 'El servidor no respondió; reintentar' : err.message; }
+    finally { sending = false; button.disabled = false; }
+  });
+  poll();
+})();
+</script>

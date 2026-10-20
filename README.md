@@ -90,7 +90,23 @@ El reconocimiento está pensado para tableros de LEDs de 7 segmentos. El video s
 
 Cuando el tablero permanece visible con los dígitos apagados al menos dos segundos, el lector muestra **Local 0, Visita 0 y reloj 10:00**. Si se pierde la señal, se conservan los últimos datos y el lector reintenta solo.
 
-## Render (opcional)
+## Habilitación por partido (código de licencia)
+
+El lector funciona solo con un **código de partido** válido. Sin código, el panel muestra la pantalla **Habilitar partido** y la gráfica queda en `--`.
+
+1. Entrar a `https://<servicio>.onrender.com/admin`, poner la **ADMIN_KEY** (Render → Environment), el club y el vencimiento (hoy a medianoche, 4 h, 24 h, 7 o 30 días; máximo 31 días).
+2. **Generar código** y mandarlo por WhatsApp desde el mismo botón.
+3. En la PC del club, al abrir `INICIAR.cmd`, pegar el código en el panel. El lector lo valida contra Render y queda habilitado hasta el vencimiento.
+
+- Se necesita internet solo para validar. Si después se corta, el partido sigue hasta el vencimiento.
+- El código queda guardado en `client/.licencia.json`: si se reinicia la PC, se vuelve a validar solo.
+- El tiempo habilitado lo cuenta el reloj interno del lector a partir de lo que concede Render; cambiar la fecha de la PC no lo extiende.
+- Los códigos no se guardan en una base de datos: cada uno lleva su vencimiento firmado con `LICENSE_SECRET`. Cambiar esa variable invalida todos los códigos emitidos.
+- La URL del servidor de licencias se puede cambiar con `license_url` en `config.json` (por defecto la del servicio de Render).
+
+Variables de Render: `LICENSE_SECRET` (32+ caracteres) y `ADMIN_KEY` (16+). El Blueprint las genera solas; si el servicio ya existía, agregarlas a mano en **Environment**.
+
+## Render
 
 El servidor `server.mjs` puede publicar el panel en Render con `render.yaml` (Node 22, plan gratuito, `INGEST_TOKEN` generado por el Blueprint). Con `client/INICIAR-RENDER.cmd` el lector envía solo los cuatro datos del marcador; nunca video ni imágenes.
 

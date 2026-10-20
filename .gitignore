@@ -19,3 +19,4 @@ proceso.json
 .DS_Store
 client/calibration.json
 client/calibration.tmp
+client/.licencia.json
