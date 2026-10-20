@@ -55,19 +55,20 @@ a{color:var(--text)}
 
   <section class="step">
     <h2>2 · Números</h2>
-    <p>Elegí un grupo y arrastrá un rectángulo que cubra todos sus dígitos. Después podés mover cada esquina para seguir la perspectiva.</p>
+    <p>Elegí un grupo y arrastrá un rectángulo que cubra todos sus dígitos, con un poco de margen. Después podés mover cada esquina para seguir la perspectiva.</p>
     <div class="groups" id="groups"></div>
   </section>
 
   <section class="step">
     <h2>3 · LEDs</h2>
     <div class="row" style="margin-bottom:10px">
-      <label class="inline">Color <select id="color"><option value="red">Rojo</option><option value="amber">Ámbar / amarillo</option><option value="green">Verde</option><option value="white">Blanco</option></select></label>
+      <label class="inline">Color <select id="color"><option value="auto">Automático</option><option value="red">Rojo</option><option value="amber">Ámbar / amarillo</option><option value="green">Verde</option><option value="white">Blanco</option></select></label>
       <label class="inline"><input type="checkbox" id="showMask" checked> Ver LEDs detectados</label>
     </div>
-    <label class="inline" style="display:block">Sensibilidad <span id="thresholdValue"></span>
+    <div class="row" style="margin-bottom:10px"><label class="inline">Dígitos <select id="segments"><option value="auto">Automático</option><option value="segments">LED de segmentos</option><option value="solid">Trazo continuo (pantalla)</option></select></label></div>
+    <label class="inline" id="thresholdRow" style="display:block">Sensibilidad <span id="thresholdValue"></span>
       <input type="range" id="threshold" min="60" max="250" step="5"></label>
-    <p>Los LEDs encendidos se pintan de verde. Si no aparecen, bajá el valor; si se pinta el fondo, subilo.</p>
+    <p>Los números encendidos se pintan de verde. En Automático el panel separa solo los números del fondo en cada grupo; si no alcanza, elegí el color y ajustá la sensibilidad.</p>
   </section>
 
   <section class="step">
@@ -97,7 +98,7 @@ const colorOf=k=>getComputedStyle(document.documentElement).getPropertyValue('--
 const canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d',{willReadFrequently:true});
 const hint=document.getElementById('hint'),statusBox=document.getElementById('status');
 const image=new Image();let imageReady=false;
-let cal={view:[1360,350,1700,610],groups:{},color:'red',threshold:180};
+let cal={view:[1360,350,1700,610],groups:{},color:'auto',threshold:180,segments:'auto'};
 let showFull=false, mode=null, drag=null, live={}, hasView=true;
 
 function setStatus(text,kind){statusBox.textContent=text;statusBox.className='status'+(kind?' '+kind:'');}
@@ -119,6 +120,28 @@ function isLit(r,g,b){
   if(cal.color==='white')return r>t&&g>t&&b>t;
   return r>t&&r>g*1.03&&r>b*1.08;
 }
+function otsu(values){
+  const hist=new Array(256).fill(0);for(const v of values)hist[v]++;
+  let total=values.length,sum=0;for(let i=0;i<256;i++)sum+=i*hist[i];
+  let w0=0,s0=0,best=0,threshold=0;
+  for(let t=0;t<256;t++){w0+=hist[t];if(!w0)continue;const w1=total-w0;if(!w1)break;s0+=t*hist[t];
+    const m0=s0/w0,m1=(sum-s0)/w1,v=w0*w1*(m0-m1)*(m0-m1);if(v>best){best=v;threshold=t;}}
+  return threshold;
+}
+function paintAuto(q){
+  // Same rule as the reader: each group separates its own bright digits from the background.
+  const xs=q.map(p=>p[0]),ys=q.map(p=>p[1]);
+  const x0=Math.max(0,Math.floor(Math.min(...xs))),y0=Math.max(0,Math.floor(Math.min(...ys)));
+  const x1=Math.min(canvas.width,Math.ceil(Math.max(...xs))),y1=Math.min(canvas.height,Math.ceil(Math.max(...ys)));
+  if(x1-x0<2||y1-y0<2)return;
+  const data=ctx.getImageData(x0,y0,x1-x0,y1-y0),p=data.data,values=[];
+  for(let i=0;i<p.length;i+=4)values.push(Math.max(p[i],p[i+1],p[i+2]));
+  const t=Math.max(otsu(values),60);let lit=0,litSum=0,darkSum=0;
+  values.forEach(v=>{if(v>t){lit++;litSum+=v;}else darkSum+=v;});
+  if(!lit||lit===values.length||litSum/lit-darkSum/(values.length-lit)<45||lit/values.length>.6)return;
+  values.forEach((v,i)=>{if(v>t){p[i*4]=40;p[i*4+1]=255;p[i*4+2]=120;}});
+  ctx.putImageData(data,x0,y0);
+}
 function lerp(a,b,t){return [a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t];}
 
 function draw(){
@@ -129,9 +152,12 @@ function draw(){
     ctx.imageSmoothingEnabled=!showFull?false:true;
     ctx.drawImage(image,x0,y0,x1-x0,y1-y0,0,0,canvas.width,canvas.height);
     if(document.getElementById('showMask').checked&&!showFull){
-      const data=ctx.getImageData(0,0,canvas.width,canvas.height),p=data.data;
-      for(let i=0;i<p.length;i+=4){if(isLit(p[i],p[i+1],p[i+2])){p[i]=40;p[i+1]=255;p[i+2]=120;}}
-      ctx.putImageData(data,0,0);
+      if(cal.color==='auto'){for(const g of GROUPS){const group=cal.groups[g.key];if(group)paintAuto(group.quad.map(toCanvas));}}
+      else{
+        const data=ctx.getImageData(0,0,canvas.width,canvas.height),p=data.data;
+        for(let i=0;i<p.length;i+=4){if(isLit(p[i],p[i+1],p[i+2])){p[i]=40;p[i+1]=255;p[i+2]=120;}}
+        ctx.putImageData(data,0,0);
+      }
     }
   }
   if(showFull&&hasView){
@@ -142,13 +168,10 @@ function draw(){
     const group=cal.groups[g.key];if(!group)continue;
     const q=group.quad.map(toCanvas),color=colorOf(g.key);
     ctx.strokeStyle=color;ctx.lineWidth=2;ctx.beginPath();q.forEach((p,i)=>i?ctx.lineTo(...p):ctx.moveTo(...p));ctx.closePath();ctx.stroke();
-    ctx.globalAlpha=.6;ctx.lineWidth=1;
-    for(let i=1;i<group.digits;i++){const t=i/group.digits,a=lerp(q[0],q[1],t),b=lerp(q[3],q[2],t);ctx.beginPath();ctx.moveTo(...a);ctx.lineTo(...b);ctx.stroke();}
-    ctx.globalAlpha=1;
     if(!showFull)q.forEach(p=>{ctx.fillStyle=color;ctx.fillRect(p[0]-6,p[1]-6,12,12);ctx.strokeStyle='#000';ctx.strokeRect(p[0]-6,p[1]-6,12,12);});
-    const digits=live.digits||{},names=digitNames(g.key,group.digits);
-    ctx.font='bold 15px Arial';ctx.textAlign='center';
-    names.forEach((n,i)=>{const t=(i+.5)/group.digits,top=lerp(q[0],q[1],t);const v=digits[n];ctx.fillStyle=v==null?'#999':'#fff';ctx.fillText(v==null?'·':v,top[0],top[1]-8);});
+    const seen=(live.digits||{})[g.key],mid=lerp(q[0],q[1],.5);
+    ctx.font='bold 16px Arial';ctx.textAlign='center';ctx.fillStyle=seen?'#fff':'#999';
+    ctx.fillText(seen?'ve: '+seen:'sin lectura',mid[0],mid[1]-9);
     ctx.textAlign='left';ctx.fillStyle=color;ctx.font='bold 13px Arial';ctx.fillText(g.label,q[3][0],q[3][1]+16);
   }
   if(drag&&drag.kind==='rect'){
@@ -175,13 +198,6 @@ function renderGroups(){
     const mark=document.createElement('button');mark.textContent=group?'Volver a marcar':'Marcar';mark.dataset.group=g.key;
     if(mode===g.key)mark.classList.add('armed');
     mark.addEventListener('click',()=>arm(g.key));control.append(mark);
-    if(g.digits.length>1){
-      const select=document.createElement('select');select.title='Dígitos';
-      g.digits.forEach(n=>{const o=document.createElement('option');o.value=n;o.textContent=n+' díg.';select.append(o);});
-      select.value=String(group?.digits||2);
-      select.addEventListener('change',()=>{if(cal.groups[g.key])cal.groups[g.key].digits=+select.value;else pendingDigits[g.key]=+select.value;draw();});
-      control.append(select);
-    }
     const read=document.createElement('div');read.className='read';read.id='read-'+g.key;
     row.append(name,read,control);box.append(row);
   }
@@ -229,7 +245,7 @@ canvas.addEventListener('pointerup',()=>{
     if(x1-x0>4&&y1-y0>4){
       if(mode==='view'){hasView=true;cal.view=[Math.round(x0),Math.round(y0),Math.round(x1),Math.round(y1)];showFull=false;document.getElementById('toggleView').textContent='Ver cuadro completo';}
       else{
-        const digits=cal.groups[mode]?.digits||(mode==='clock'?4:mode==='period'?1:pendingDigits[mode]);
+        const digits=mode==='clock'?4:mode==='period'?1:3;
         cal.groups[mode]={quad:[[x0,y0],[x1,y0],[x1,y1],[x0,y1]],digits};
       }
       const order=['clock','homeScore','awayScore','period'],next=order.find(k=>!cal.groups[k]);
@@ -242,7 +258,8 @@ canvas.addEventListener('pointerup',()=>{
 
 const threshold=document.getElementById('threshold'),thresholdValue=document.getElementById('thresholdValue'),color=document.getElementById('color');
 threshold.addEventListener('input',()=>{cal.threshold=+threshold.value;thresholdValue.textContent=threshold.value;draw();});
-color.addEventListener('change',()=>{cal.color=color.value;draw();});
+color.addEventListener('change',()=>{cal.color=color.value;syncInputs();draw();});
+const segments=document.getElementById('segments');segments.addEventListener('change',()=>{cal.segments=segments.value;});
 document.getElementById('showMask').addEventListener('change',draw);
 
 async function post(body){
@@ -261,7 +278,7 @@ document.getElementById('reset').addEventListener('click',async()=>{
   try{const data=await post({reset:true});cal=data.calibration;syncInputs();renderGroups();draw();setStatus('Se restauró la calibración original.','ok');}
   catch(error){setStatus(error.message,'err');}
 });
-function syncInputs(){threshold.value=cal.threshold;thresholdValue.textContent=cal.threshold;color.value=cal.color;}
+function syncInputs(){threshold.value=cal.threshold;thresholdValue.textContent=cal.threshold;color.value=cal.color;segments.value=cal.segments||'auto';document.getElementById('thresholdRow').style.display=cal.color==='auto'?'none':'block';}
 
 function loadFrame(){
   if(document.getElementById('freeze').checked||drag){setTimeout(loadFrame,500);return;}
@@ -279,7 +296,7 @@ async function pollState(){
 fetch('/api/calibration').then(r=>r.json()).then(data=>{cal=data.calibration;syncInputs();renderGroups();draw();loadFrame();pollState();
   if(!data.calibrated){
     // First calibration: start on the whole camera frame, ready to mark the board zone.
-    cal.groups={};hasView=false;showFull=true;mode='view';renderGroups();
+    cal.groups={};cal.color='auto';cal.segments='auto';syncInputs();hasView=false;showFull=true;mode='view';renderGroups();
     document.getElementById('toggleView').textContent='Ver zona del tablero';
     hint.textContent='Paso 1: arrastrá un rectángulo alrededor del tablero.';
     setStatus('Todavía no hay calibración para este tablero.');draw();

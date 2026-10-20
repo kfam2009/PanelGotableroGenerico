@@ -122,6 +122,7 @@ class OBS:
 
 def read_values(im):
     r=reader_module
+    if r.CALIBRATED:return r.read_calibrated(im)
     results={k:r.recognize(im,k) for k in r.QUADS}
     digits={k:v[0] for k,v in results.items()}
     dark={k for k,v in results.items() if v[0] is None and not v[1]}
