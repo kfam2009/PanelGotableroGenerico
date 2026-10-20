@@ -11,9 +11,8 @@ Panel web de básquet con lectura automática del tablero (reloj, período, loca
 ## Instalar
 
 1. Descargar el repositorio como ZIP y extraerlo.
-2. Instalar [Python 3.10 o posterior](https://www.python.org/downloads/windows/) con **Add Python to PATH**, si todavía no está.
-3. Ejecutar `client/INSTALAR.cmd`. Instala las dependencias y el componente de video, y abre el asistente.
-4. Ejecutar `client/INICIAR.cmd` para abrir el panel.
+2. Ejecutar `client/INSTALAR.cmd`. Si la PC no tiene Python, lo descarga e instala solo (instalador oficial con firma verificada, sin pedir administrador). Después instala las dependencias y el componente de video, y abre el asistente.
+3. Ejecutar `client/INICIAR.cmd` para abrir el panel.
 
 Para cambiar de vMix a OBS, las IP o el origen del tablero: `client/CONFIGURAR.cmd`.
 
