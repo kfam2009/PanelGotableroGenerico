@@ -34,6 +34,19 @@ $Config['obs_host'] = $Production
 $Config['bridge_address'] = $ThisPc
 $SrtHost = if ($Production -eq '127.0.0.1') { '127.0.0.1' } else { $Production }
 
+Write-Host ''
+Write-Host 'Acceso remoto (opcional): permite cargar el codigo y calibrar el tablero desde otra PC por ZeroTier.' -ForegroundColor Cyan
+$RemoteIp = Ask 'IP de ZeroTier del tecnico que calibra a distancia (Enter: sin acceso remoto)' $Config['remote_admin_ip']
+if ($RemoteIp -and $ThisPc) {
+    $Config['remote_admin_ip'] = $RemoteIp
+    $RemotePass = Ask 'Contrasena del acceso remoto (minimo 8 caracteres)' $Config['remote_password']
+    while (-not $RemotePass -or $RemotePass.Length -lt 8) { $RemotePass = Ask 'La contrasena tiene que tener al menos 8 caracteres' '' }
+    $Config['remote_password'] = $RemotePass
+} else {
+    if ($RemoteIp) { Write-Host 'Para el acceso remoto esta PC necesita ZeroTier. Queda desactivado.' -ForegroundColor Yellow }
+    $Config['remote_admin_ip'] = ''; $Config['remote_password'] = ''
+}
+
 if ($Switcher -eq 'vmix') {
     Write-Host ''
     Write-Host 'En vMix: Settings > Outputs/NDI/SRT > Output 2 (o 3/4) > Source: la camara del tablero > SRT,' -ForegroundColor Cyan
@@ -77,5 +90,8 @@ elseif ($Switcher -eq 'vmix') { Write-Host "vMix no responde en ${Production}:$P
 else { Write-Host "OBS no responde en ${Production}:$Port. Revisar OBS abierto, WebSocket activo y firewall de esa PC." -ForegroundColor Yellow }
 if ($Production -ne '127.0.0.1') {
     Write-Host "La grafica se sirve desde esta PC en http://${ThisPc}:8772/graphics.html. Si Windows pregunta, permitir Python en la red." -ForegroundColor Cyan
+}
+if ($Config['remote_admin_ip']) {
+    Write-Host "Acceso remoto: desde $($Config['remote_admin_ip']) abrir http://${ThisPc}:8773/ (usuario: cualquiera, contrasena: la elegida). Si Windows pregunta, permitir Python en la red." -ForegroundColor Cyan
 }
 Write-Host 'Configuracion guardada. Ejecutar INICIAR.cmd.' -ForegroundColor Green

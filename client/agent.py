@@ -1,5 +1,7 @@
 """Runs on the client's PC. OBS is local or reached over ZeroTier; only score data goes to Render."""
 import argparse
+import base64
+import hmac
 import html
 import io
 import ipaddress
@@ -29,6 +31,15 @@ from license import DEFAULT_LICENSE_URL,License,expiry_label
 ROOT = Path(__file__).resolve().parent
 # Shown over the local panel until the match code is validated.
 LICENSE_UI = (ROOT/'license_ui.html').read_text(encoding='utf-8')
+REMOTE_PORT = 8773
+# Page for the technician who connects over ZeroTier: code entry, live reading and calibration only.
+REMOTE_PAGE = '''<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Panel Go · Acceso remoto</title>
+<style>body{margin:0;background:#15161a;color:#f2f3f5;font:16px system-ui,"Segoe UI",Arial,sans-serif}main{max-width:760px;margin:0 auto;padding:24px 16px}header{display:flex;gap:14px;align-items:center}header img{height:52px;border-radius:10px}h1{font-size:20px;margin:0}small{color:#a3a7b0}#status{margin:18px 0 10px;color:#a3a7b0}.vals{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.vals div{background:#202227;border:1px solid #33363e;border-radius:12px;padding:12px;font-size:13px;color:#a3a7b0}.vals strong{display:block;color:#fff;font-size:30px;margin-top:6px}.stale{opacity:.45}img#board{width:100%;max-height:320px;object-fit:contain;background:#050505;border-radius:12px;margin:16px 0}a.btn{display:block;text-align:center;padding:14px;border-radius:12px;background:#d6221e;color:#fff;font-weight:700;text-decoration:none}@media(max-width:520px){.vals{grid-template-columns:1fr 1fr}}</style></head>
+<body><main><header><img src="/assets/panelgo-logo.png" alt="Panel Go"><div><h1>Acceso remoto · CLUB_PC</h1><small>Código del partido y calibración por ZeroTier</small></div></header>
+<p id="status">Conectando...</p><div class="vals"><div>Reloj<strong id="clock">--:--</strong></div><div>Local<strong id="homeScore">--</strong></div><div>Visita<strong id="awayScore">--</strong></div><div>Período<strong id="period">--</strong></div></div>
+<img id="board" alt="Última captura del tablero"><a class="btn" href="/calibrar">Calibrar tablero</a></main>
+<script>let revision=-1;async function poll(){try{const r=await fetch('/api/state',{cache:'no-store'});const s=await r.json();for(const k of ['clock','homeScore','awayScore','period']){const e=document.getElementById(k);e.textContent=s[k];e.classList.toggle('stale',!s.fields[k].valid);}document.getElementById('status').textContent=s.status;if(s.revision!==revision){revision=s.revision;document.getElementById('board').src='/board.png?r='+revision;}}catch{document.getElementById('status').textContent='Sin conexión con el panel del club';}finally{setTimeout(poll,1000)}}poll();</script></body></html>'''
+REMOTE_ROUTES = {'/','/calibrar','/api/state','/api/license','/api/calibration','/frame.jpg','/board.png','/styles.css'}
 
 
 def load_config(path,local_only=False):
@@ -76,7 +87,15 @@ def load_config(path,local_only=False):
     license_url=str(config.get('license_url') or DEFAULT_LICENSE_URL).strip().rstrip('/')
     parts=urllib.parse.urlsplit(license_url)
     if parts.scheme!='https' and parts.hostname not in ('localhost','127.0.0.1'):raise ValueError('license_url debe usar https://')
-    return {**config,'license_url':license_url,'cloud_url':'' if local_only else cloud,'ingest_token':token,'obs_port':port,'obs_host':host,'production_host':host,
+    remote_ip=str(config.get('remote_admin_ip') or '').strip();remote_password=str(config.get('remote_password') or '')
+    zerotier=str(config.get('bridge_address','')).strip()
+    if remote_ip:
+        try:
+            if not ipaddress.ip_address(remote_ip).is_private or not ipaddress.ip_address(zerotier).is_private:raise ValueError
+        except ValueError:raise ValueError('Calibracion remota: remote_admin_ip y bridge_address tienen que ser IP de ZeroTier.')
+        if len(remote_password)<8:raise ValueError('Calibracion remota: remote_password tiene que tener al menos 8 caracteres.')
+    remote={'listen':zerotier,'allow':remote_ip,'password':remote_password} if remote_ip else None
+    return {**config,'remote':remote,'license_url':license_url,'cloud_url':'' if local_only else cloud,'ingest_token':token,'obs_port':port,'obs_host':host,'production_host':host,
             'bridge_address':bridge,'switcher':switcher,'switcher_name':name,'vmix_port':vmix_port,'vmix_overlay':int(config.get('vmix_overlay',1)),
             'board_mode':board_mode,'board_url':board_url,'game_url':game_url}
 
@@ -115,7 +134,7 @@ class Uplink:
             if self.message!='Datos enviados a Render':time.sleep(1)
 
 
-def local_server(feed,uplink,game,port,license=None):
+def local_server(feed,uplink,game,port,license=None,bind='127.0.0.1',remote=None):
     page='''<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Panel Go - Lector local</title><style>body{margin:32px auto;max-width:850px;padding:0 20px;background:#101620;color:#eef2f8;font:16px Arial}h1{color:#ffd348}section{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}section div{padding:20px 10px;background:#1d2939;border-radius:10px}strong{display:block;margin-top:12px;font-size:34px}img{width:100%;max-height:300px;object-fit:contain;background:#080b10;margin:20px 0}a{color:#76e4b2}.stale{opacity:.45}@media(max-width:500px){section{grid-template-columns:1fr 1fr}}</style>
 <h1>Panel Go · lector local</h1><p id="status">Conectando con OBS local...</p><p id="cloud"></p>
@@ -138,8 +157,27 @@ def local_server(feed,uplink,game,port,license=None):
     cloud_origin=uplink.config.get('cloud_url','').rstrip('/')
     allowed_origins={f'http://127.0.0.1:{port}',f'http://localhost:{port}'}
     if cloud_origin.startswith('https://'):allowed_origins.add(cloud_origin)
+    own_origins={f'http://127.0.0.1:{port}',f'http://localhost:{port}'}
+    failures={'count':0,'until':0.}
+    if remote:
+        # Remote access: only the technician's ZeroTier IP, with password, and only code entry + calibration.
+        own_origins=allowed_origins={f'http://{bind}:{port}'}
+        page=REMOTE_PAGE.replace('CLUB_PC',html.escape(bind))+(LICENSE_UI if license else '')
     class Handler(BaseHTTPRequestHandler):
         def log_message(self,*args):pass
+        def allowed(self):
+            if not remote:return True
+            if self.client_address[0]!=remote['allow']:self.send_error(403);return False
+            if time.monotonic()<failures['until']:self.send_error(429,'Demasiados intentos; esperar 5 minutos');return False
+            header=self.headers.get('Authorization','')
+            try:password=base64.b64decode(header[6:]).decode('utf-8').split(':',1)[1] if header.startswith('Basic ') else ''
+            except Exception:password=''
+            if password and hmac.compare_digest(password.encode(),remote['password'].encode()):failures['count']=0;return True
+            if password:
+                failures['count']+=1
+                if failures['count']>=10:failures['count']=0;failures['until']=time.monotonic()+300
+            self.send_response(401);self.send_header('WWW-Authenticate','Basic realm="Panel Go remoto", charset="UTF-8"');self.send_header('Content-Length','0');self.end_headers()
+            return False
         def end_headers(self):
             origin=self.headers.get('Origin')
             if origin in allowed_origins:
@@ -147,6 +185,7 @@ def local_server(feed,uplink,game,port,license=None):
                 self.send_header('Vary','Origin')
             super().end_headers()
         def do_OPTIONS(self):
+            if remote:self.send_error(405);return
             if self.headers.get('Origin') not in allowed_origins:self.send_error(403);return
             if self.path.split('?',1)[0] not in ('/api/state','/api/events','/board.png','/game.jpg'):self.send_error(404);return
             self.send_response(204)
@@ -155,7 +194,8 @@ def local_server(feed,uplink,game,port,license=None):
             self.end_headers()
         def do_POST(self):
             # Calibration changes only from the panel served by this same reader.
-            if self.headers.get('Origin') not in (f'http://127.0.0.1:{self.server.server_port}',f'http://localhost:{self.server.server_port}'):self.send_error(403);return
+            if not self.allowed():return
+            if self.headers.get('Origin') not in own_origins:self.send_error(403);return
             if self.path=='/api/license' and license:
                 try:
                     length=int(self.headers.get('Content-Length','0'))
@@ -178,9 +218,11 @@ def local_server(feed,uplink,game,port,license=None):
             data=json.dumps(result).encode()
             self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
         def do_GET(self):
+            if not self.allowed():return
             origin=self.headers.get('Origin')
             if origin and origin not in allowed_origins:self.send_error(403);return
             route=self.path.split('?',1)[0]
+            if remote and route not in REMOTE_ROUTES and not (route.startswith('/assets/') and '..' not in route):self.send_error(404);return
             if route=='/video/ws':game.forward_websocket(self);return
             if route in ('/','/index.html'):data=page.encode();kind='text/html; charset=utf-8'
             elif route=='/api/state':
@@ -220,7 +262,9 @@ def local_server(feed,uplink,game,port,license=None):
                 data=file.read_bytes();kind={'.html':'text/html; charset=utf-8','.css':'text/css','.js':'text/javascript','.png':'image/png'}.get(file.suffix,'application/octet-stream')
             else:self.send_error(404);return
             self.send_response(200);self.send_header('Content-Type',kind);self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
-    return ThreadingHTTPServer(('127.0.0.1',port),Handler)
+    server=ThreadingHTTPServer((bind,port),Handler);server.daemon_threads=True
+    if remote:allowed_origins.clear();allowed_origins.add(f'http://{bind}:{server.server_port}')
+    return server
 
 
 def main():
@@ -244,6 +288,12 @@ def main():
     try:server=local_server(feed,uplink,game,port,license)
     except OSError:raise SystemExit(f'El puerto {port} ya esta en uso: hay otro panel o lector abierto (por ejemplo el de Club Estrella). Cerrar esa consola y volver a ejecutar INICIAR.cmd.')
     control_server=None
+    if config['remote']:
+        try:
+            remote_server=local_server(feed,uplink,game,REMOTE_PORT,license,bind=config['remote']['listen'],remote=config['remote'])
+            threading.Thread(target=remote_server.serve_forever,daemon=True).start()
+            print(f"Acceso remoto para {config['remote']['allow']}: http://{config['remote']['listen']}:{REMOTE_PORT}/",flush=True)
+        except OSError:print(f"No se pudo abrir el acceso remoto en {config['remote']['listen']}:{REMOTE_PORT}. Revisar ZeroTier.",flush=True)
     if config['switcher']=='vmix':control=VmixGraphicControl(config['production_host'],config['vmix_port'],config['vmix_overlay'])
     else:control=GraphicControl(config['obs_host'],config['obs_port'])
     control.local=not config['bridge_address']
