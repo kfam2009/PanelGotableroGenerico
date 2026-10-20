@@ -118,7 +118,7 @@ export function createHandler({ token, store = new ScoreStore(), licenseSecret =
       if (req.method === 'POST' && url.pathname === '/api/admin/code') {
         if (!licensing) return json(res, 503, { error: 'Licencias no configuradas: faltan LICENSE_SECRET y ADMIN_KEY en Render' });
         if (!attempts.allow('admin')) return json(res, 429, { error: 'Demasiados intentos; esperar un minuto' });
-        if (!authorized(req.headers.authorization, adminKey)) return json(res, 401, { error: 'Clave de administrador incorrecta' });
+        if (!authorized(String(req.headers.authorization || '').trim(), adminKey)) return json(res, 401, { error: 'Clave de administrador incorrecta. Tiene que ser igual a ADMIN_KEY en Render → Environment (mayúsculas y guiones incluidos).' });
         const body = await jsonBody(req);
         const expiresAt = Date.parse(body?.expiresAt);
         if (!Number.isFinite(expiresAt) || expiresAt <= now()) return json(res, 400, { error: 'La fecha de vencimiento tiene que ser futura' });
@@ -159,7 +159,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.error('Configurar INGEST_TOKEN con una clave privada de al menos 32 caracteres.');
     process.exitCode = 1;
   } else {
-    const licenseSecret = process.env.LICENSE_SECRET || '', adminKey = process.env.ADMIN_KEY || '';
+    const licenseSecret = (process.env.LICENSE_SECRET || '').trim(), adminKey = (process.env.ADMIN_KEY || '').trim();
     if (licenseSecret.length < 32 || adminKey.length < 16) console.warn('Licencias desactivadas: configurar LICENSE_SECRET (32+) y ADMIN_KEY (16+).');
     const app = createHandler({ token, licenseSecret, adminKey });
     const server = http.createServer(app.handler);
