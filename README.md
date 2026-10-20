@@ -1,6 +1,6 @@
 # Panel Club Estrella
 
-Panel web de básquet con reloj, período, local y visita. El lector se instala en la **misma PC que OBS**. Consulta `127.0.0.1:4455` y envía únicamente los cuatro datos a Render por HTTPS. No requiere ZeroTier ni abrir puertos de la PC del cliente.
+Panel web de básquet con reloj, período, local y visita. El lector se instala en la **misma PC que OBS**. Consulta `127.0.0.1:4455` y envía únicamente los cuatro datos a Render por HTTPS. No requiere ZeroTier ni abrir puertos de la PC del cliente. Opcionalmente, el lector puede correr en otra PC y leer OBS por ZeroTier.
 
 Incluye las correcciones de décimas (`05.4`) y de la confusión entre el `3` y el `1` en el marcador de visita, verificadas con capturas reales del tablero.
 
@@ -30,6 +30,20 @@ El monitor local muestra el tablero y la **salida de programa de OBS** uno al la
 Para monitorear la cámara del juego en video continuo en vez de programa, configurar `monitor_mode: "camera"`. Ese modo usa RTSP mediante go2rtc y MSE/WebSocket. La fuente debe ser RTSP, preferentemente H.264; la compatibilidad depende del códec y del navegador. Usar Chrome o Edge actualizado. La cámara debe admitir una conexión adicional desde la PC. `PREPARAR-PRUEBA.cmd` configura ese modo para la prueba de video continuo. Render recibe únicamente los datos del marcador.
 
 El instalador obtiene go2rtc 1.9.14 de su repositorio oficial y verifica SHA-256. El reproductor y la licencia MIT se incluyen en `client/vendor`. El servicio de video escucha solo en localhost y su API requiere una clave aleatoria. El navegador accede únicamente al stream del juego a través del lector; no recibe la dirección ni las credenciales de la cámara. `client/.runtime` contiene la configuración privada temporal y está excluida de Git.
+
+## Lector en otra PC con OBS por ZeroTier
+
+El lector también puede correr en una PC distinta de la de OBS, si ambas están en la misma red de ZeroTier. Así la PC del club solo necesita OBS.
+
+1. En la PC de OBS, activar **Habilitar autenticación** en el servidor WebSocket y anotar la contraseña. Con OBS remoto el lector no arranca sin clave.
+2. Anotar las dos IP de ZeroTier: la de la PC de OBS y la de la PC del lector.
+3. En `client/config.json` de la PC del lector, cargar `obs_host` con la IP de ZeroTier de OBS, `obs_password` con la clave y `bridge_address` con la IP de ZeroTier de la PC del lector.
+4. En el firewall de Windows, permitir solo lo necesario (PowerShell como administrador):
+   - PC de OBS: `New-NetFirewallRule -DisplayName "OBS WebSocket ZeroTier" -Direction Inbound -Protocol TCP -LocalPort 4455 -RemoteAddress IP_DEL_LECTOR -Action Allow`
+   - PC del lector: `New-NetFirewallRule -DisplayName "Panel Go salida ZeroTier" -Direction Inbound -Protocol TCP -LocalPort 8772 -RemoteAddress IP_DE_OBS -Action Allow`
+5. Ejecutar `client/INICIAR.cmd` en la PC del lector. La consola muestra la dirección de la salida para OBS.
+
+**Preparar en OBS** crea la fuente apuntando a `http://IP_DEL_LECTOR:8772/graphics.html`. Ese puerto solo responde a la IP de OBS y entrega únicamente la gráfica y los datos del marcador, sin cámaras ni controles. El monitor local sigue abierto solo en la PC del lector. Para este modo conviene `monitor_mode: "program"`; el modo `camera` requiere que la cámara RTSP también sea accesible desde la PC del lector. La lectura depende de la calidad de la conexión: si ZeroTier se corta, el lector reintenta y conserva los últimos datos.
 
 ## Probar video sin configurar Render
 

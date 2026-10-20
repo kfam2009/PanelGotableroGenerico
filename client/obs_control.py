@@ -139,12 +139,12 @@ def make_control_server(control,port=8774,graphic_url='http://127.0.0.1:8771/gra
     server.daemon_threads=True
     return server
 
-def make_bridge(address,port,peer,root):
+def make_bridge(address,port,peer,root,local_port=8771):
     """Only the OBS peer can read the graphic and score feed; no cameras or control."""
     root=Path(root).resolve()
     opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
     def state():
-        with opener.open('http://127.0.0.1:8771/api/state',timeout=3) as response:data=json.load(response)
+        with opener.open(f'http://127.0.0.1:{local_port}/api/state',timeout=3) as response:data=json.load(response)
         return {**{k:v for k,v in data.items() if k in {'service','clock','homeScore','awayScore','period','fields','connected','ocrStatus','status','updatedAt','revision','boardOff'}},'graphicSettings':read_graphic_settings()}
     class Handler(BaseHTTPRequestHandler):
         def log_message(self,*args):pass

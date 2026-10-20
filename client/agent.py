@@ -1,6 +1,7 @@
-"""Runs on the client's PC. OBS stays on localhost; only score data goes to Render."""
+"""Runs on the client's PC. OBS is local or reached over ZeroTier; only score data goes to Render."""
 import argparse
 import html
+import ipaddress
 import json
 import logging
 import os
@@ -17,7 +18,7 @@ from types import SimpleNamespace
 
 from core import Feed, OBS
 from continuous_video import ContinuousVideo
-from obs_control import GraphicControl,make_control_server
+from obs_control import GraphicControl,make_bridge,make_control_server
 from program_preview import ProgramPreview
 
 ROOT = Path(__file__).resolve().parent
@@ -35,11 +36,21 @@ def load_config(path,local_only=False):
     token=config.get('ingest_token','')
     if not local_only and (not isinstance(token,str) or len(token)<32 or 'REPLACE_' in token):
         raise ValueError('Configurar la clave INGEST_TOKEN del servicio de Render.')
-    if config.get('obs_host','127.0.0.1') not in ('127.0.0.1','localhost'):
-        raise ValueError('Este lector debe ejecutarse en la misma PC que OBS.')
+    host=str(config.get('obs_host','127.0.0.1')).strip() or '127.0.0.1'
+    bridge=''
+    if host!='localhost':
+        try:obs_ip=ipaddress.ip_address(host)
+        except ValueError:raise ValueError('obs_host debe ser 127.0.0.1 o la IP de ZeroTier de la PC con OBS.')
+        if not obs_ip.is_loopback:
+            if not obs_ip.is_private:raise ValueError('obs_host remoto debe ser una IP privada de ZeroTier, no una IP publica.')
+            if not str(config.get('obs_password','')):raise ValueError('Para usar OBS remoto hay que activar la autenticacion del WebSocket de OBS y cargar obs_password.')
+            bridge=str(config.get('bridge_address','')).strip()
+            try:bridge_ip=ipaddress.ip_address(bridge)
+            except ValueError:raise ValueError('Cargar bridge_address con la IP de ZeroTier de esta PC.')
+            if bridge_ip.is_loopback or not bridge_ip.is_private or bridge_ip==obs_ip:raise ValueError('bridge_address debe ser la IP de ZeroTier de esta PC.')
     port=int(config.get('obs_port',4455))
     if not 1<=port<=65535:raise ValueError('Puerto OBS invalido')
-    return {**config,'cloud_url':'' if local_only else cloud,'ingest_token':token,'obs_port':port}
+    return {**config,'cloud_url':'' if local_only else cloud,'ingest_token':token,'obs_port':port,'obs_host':host,'bridge_address':bridge}
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -83,7 +94,7 @@ def local_server(feed,uplink,game,port):
 <section><div>Reloj<strong id="clock">--:--</strong></div><div>Local<strong id="homeScore">--</strong></div><div>Visita<strong id="awayScore">--</strong></div><div>Período<strong id="period">--</strong></div></section>
 <style>.monitors{display:grid;grid-template-columns:1fr 1.7fr;gap:15px;margin-top:24px}.monitors figure{margin:0;min-width:0}.monitors img{height:240px;object-fit:contain;margin:8px 0;background:#050505}figcaption{font-weight:bold}#gameStatus{font-size:12px;font-weight:normal}club-game{display:block;height:240px;background:#050505;margin:8px 0}club-game video{object-fit:contain}@media(max-width:520px){.monitors{grid-template-columns:1fr}}</style>
 <div class="monitors"><figure><figcaption>Tablero</figcaption><img id="board" alt="Última captura del tablero"></figure><figure><figcaption>Juego <span id="gameStatus">Conectando video continuo</span></figcaption><club-game data-enabled="true" aria-label="Video continuo del juego"></club-game></figure></div>
-<p id="videoBackend"></p><p><a href="CLOUD_URL" target="_blank" rel="noopener">Abrir panel en Render</a></p><small>OBS local · sin ZeroTier · cámara en video continuo · lectura del tablero independiente</small>
+<p id="videoBackend"></p><p><a href="CLOUD_URL" target="_blank" rel="noopener">Abrir panel en Render</a></p><small>OBS local o por ZeroTier · cámara en video continuo · lectura del tablero independiente</small>
 <script type="module" src="/video-monitor.js"></script>
 <script>let revision=-1;async function poll(){try{const r=await fetch('/api/state',{cache:'no-store',signal:AbortSignal.timeout(2500)});const s=await r.json();for(const k of ['clock','homeScore','awayScore','period']){document.getElementById(k).textContent=s[k];document.getElementById(k).classList.toggle('stale',!s.fields[k].valid);}document.getElementById('status').textContent=s.status+' · lector '+s.version;document.getElementById('cloud').textContent=s.uplink;document.getElementById('videoBackend').textContent=s.gameStatus||'';if(s.revision!==revision){revision=s.revision;document.getElementById('board').src='/board.png?r='+revision;}}catch{document.getElementById('status').textContent='Sin conexión con el lector local';}finally{setTimeout(poll,1000)}}poll();</script></html>'''.replace('CLOUD_URL',html.escape(uplink.config['cloud_url'],quote=True))
     if not uplink.config['cloud_url']:
@@ -153,7 +164,7 @@ def main():
     try:config=load_config(args.config,args.local_only)
     except Exception as exc:raise SystemExit('Configuracion invalida: '+str(exc))
     os.environ['OBS_PASSWORD']=config.get('obs_password','')
-    feed=Feed(SimpleNamespace(host='127.0.0.1',obs_port=config['obs_port'],source=config.get('source','Camara 2'),game_source=config.get('game_source','camara 01'),interval=.2,
+    feed=Feed(SimpleNamespace(host=config['obs_host'],obs_port=config['obs_port'],source=config.get('source','Camara 2'),game_source=config.get('game_source','camara 01'),interval=.2,
                              game_rtsp=config.get('game_rtsp',''),video_port=int(config.get('video_port',1987))))
     uplink=Uplink(feed,config)
     game=ContinuousVideo(feed.args,OBS,ROOT) if config.get('monitor_mode','program')=='camera' else ProgramPreview(feed.args,OBS)
@@ -161,7 +172,16 @@ def main():
     server=local_server(feed,uplink,game,port)
     control_server=None
     try:
-        control_server=make_control_server(GraphicControl(port=config['obs_port']),graphic_url=f'http://127.0.0.1:{port}/graphics.html',cloud_origin=config.get('cloud_url',''))
+        graphic_url=f'http://127.0.0.1:{port}/graphics.html'
+        if config['bridge_address']:
+            web=ROOT.parent/'public'
+            if not web.is_dir():web=ROOT/'panel'
+            try:bridge=make_bridge(config['bridge_address'],8772,config['obs_host'],web,local_port=port)
+            except OSError:raise SystemExit(f"No se pudo abrir {config['bridge_address']}:8772. Revisar que ZeroTier este conectado y que esa sea la IP de esta PC.")
+            threading.Thread(target=bridge.serve_forever,daemon=True).start()
+            graphic_url=f"http://{config['bridge_address']}:8772/graphics.html"
+            print(f"OBS remoto {config['obs_host']} · salida para OBS en {graphic_url}",flush=True)
+        control_server=make_control_server(GraphicControl(config['obs_host'],config['obs_port']),graphic_url=graphic_url,cloud_origin=config.get('cloud_url',''))
         threading.Thread(target=control_server.serve_forever,daemon=True).start()
     except OSError:logging.info('El control OBS ya esta abierto o su puerto no esta disponible.')
     threading.Thread(target=feed.run,daemon=True).start()

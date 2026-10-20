@@ -4,6 +4,7 @@
   "obs_host": "127.0.0.1",
   "obs_port": 4455,
   "obs_password": "",
+  "bridge_address": "",
   "source": "Camara 2",
   "game_source": "camara 01",
   "monitor_mode": "program",

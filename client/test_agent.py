@@ -24,6 +24,17 @@ class ClientTests(unittest.TestCase):
         with self.assertRaises(ValueError):self.config(cloud_url='https://example.com?token=private')
         with self.assertRaises(ValueError):self.config(ingest_token='short')
 
+    def test_remote_obs_over_zerotier(self):
+        remote=dict(obs_host='172.27.4.10',obs_password='clave-obs',bridge_address='172.27.4.221')
+        config=self.config(**remote)
+        self.assertEqual((config['obs_host'],config['bridge_address']),('172.27.4.10','172.27.4.221'))
+        self.assertEqual(self.config()['bridge_address'],'')
+        with self.assertRaises(ValueError):self.config(**{**remote,'obs_password':''})
+        with self.assertRaises(ValueError):self.config(**{**remote,'bridge_address':''})
+        with self.assertRaises(ValueError):self.config(**{**remote,'bridge_address':'172.27.4.10'})
+        with self.assertRaises(ValueError):self.config(**{**remote,'obs_host':'8.8.8.8'})
+        with self.assertRaises(ValueError):self.config(**{**remote,'obs_host':'obs.example.com'})
+
     def test_blank_frame_is_not_a_score(self):
         self.assertEqual(read_values(Image.new('RGB',(1920,1080)))[0],{})
 
