@@ -75,7 +75,7 @@ class StreamFrames:
         self.thread=None
 
     def command(self,binary):
-        options=['-hide_banner','-loglevel','error','-nostdin','-probesize','1000000','-analyzeduration','1000000','-fflags','nobuffer','-flags','low_delay']
+        options=['-hide_banner','-loglevel','error','-nostdin','-probesize','500000','-analyzeduration','500000','-fflags','nobuffer','-flags','low_delay']
         source=Path(self.url)
         if source.suffix.lower() in IMAGE_TYPES and source.is_file():options+=['-loop','1','-framerate',str(self.fps)]
         elif source.suffix.lower() in VIDEO_TYPES and source.is_file():options+=['-re','-stream_loop','-1']

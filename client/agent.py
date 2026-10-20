@@ -64,10 +64,12 @@ def load_config(path,local_only=False):
     if board_mode not in ('obs','stream'):raise ValueError('board_mode debe ser "obs" o "stream".')
     if switcher=='vmix' and board_mode=='obs':raise ValueError('Con vMix el tablero se lee por SRT o RTSP (board_mode "stream").')
     board_url=game_url=''
+    # SRT buffer: short on this PC or the local network, longer over ZeroTier between sites.
+    latency=int(config.get('srt_latency_ms') or (400 if remote else 120))
     if board_mode=='stream':
         if not config.get('board_url'):raise ValueError('Falta board_url: la salida SRT de vMix (IP:puerto) o la camara RTSP del tablero.')
-        board_url=srt_url(str(config['board_url']),int(config.get('srt_latency_ms',400)))
-    if config.get('game_url'):game_url=srt_url(str(config['game_url']),int(config.get('srt_latency_ms',400)))
+        board_url=srt_url(str(config['board_url']),latency)
+    if config.get('game_url'):game_url=srt_url(str(config['game_url']),latency)
     return {**config,'cloud_url':'' if local_only else cloud,'ingest_token':token,'obs_port':port,'obs_host':host,'production_host':host,
             'bridge_address':bridge,'switcher':switcher,'switcher_name':name,'vmix_port':vmix_port,'vmix_overlay':int(config.get('vmix_overlay',1)),
             'board_mode':board_mode,'board_url':board_url,'game_url':game_url}
@@ -207,8 +209,8 @@ def main():
     except Exception as exc:raise SystemExit('Configuracion invalida: '+str(exc))
     os.environ['OBS_PASSWORD']=config.get('obs_password','')
     name=config['switcher_name']
-    board_stream=StreamFrames(config['board_url'],ffmpeg=config.get('ffmpeg_path','')) if config['board_mode']=='stream' else None
-    feed=Feed(SimpleNamespace(host=config['obs_host'],obs_port=config['obs_port'],source=config.get('source','Camara 2'),game_source=config.get('game_source','camara 01'),interval=.2,
+    board_stream=StreamFrames(config['board_url'],fps=8,ffmpeg=config.get('ffmpeg_path','')) if config['board_mode']=='stream' else None
+    feed=Feed(SimpleNamespace(host=config['obs_host'],obs_port=config['obs_port'],source=config.get('source','Camara 2'),game_source=config.get('game_source','camara 01'),interval=.125 if config['board_mode']=='stream' else .2,
                              game_rtsp=config.get('game_rtsp',''),video_port=int(config.get('video_port',1987)),board_stream=board_stream,board_crop=config.get('board_crop')))
     uplink=Uplink(feed,config)
     if config['game_url']:game=StreamPreview(config['game_url'],f'Salida de {name}',ffmpeg=config.get('ffmpeg_path',''))

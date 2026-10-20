@@ -68,7 +68,7 @@ New-NetFirewallRule -DisplayName "Panel Go grafica" -Direction Inbound -Protocol
 | `game_url` | Monitor de programa por SRT/RTSP (opcional) |
 | `vmix_port`, `vmix_overlay` | API de vMix (8088) y canal de overlay (1–4) |
 | `obs_port`, `obs_password` | WebSocket de OBS |
-| `srt_latency_ms` | Latencia SRT (400 por defecto) |
+| `srt_latency_ms` | Latencia SRT (120 en esta PC o red local, 400 por ZeroTier) |
 | `ffmpeg_path` | Ruta de ffmpeg (la completa el asistente) |
 
 `config.json` es privado y está excluido de Git. Los valores de ejemplo están en `client/config.example.json`.

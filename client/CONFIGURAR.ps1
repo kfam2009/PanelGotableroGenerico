@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 # Asistente: vMix u OBS, IPs de ZeroTier y origen del video del tablero.
 $ConfigFile = Join-Path $PSScriptRoot 'config.json'
-$Config = [ordered]@{ obs_port=4455; vmix_port=8088; vmix_overlay=1; source='Camara 2'; game_source='camara 01'; local_port=8771; monitor_mode='program'; srt_latency_ms=400 }
+$Config = [ordered]@{ obs_port=4455; vmix_port=8088; vmix_overlay=1; source='Camara 2'; game_source='camara 01'; local_port=8771; monitor_mode='program' }
 if (Test-Path -LiteralPath $ConfigFile) {
     (Get-Content -LiteralPath $ConfigFile -Raw | ConvertFrom-Json).PSObject.Properties | ForEach-Object { $Config[$_.Name] = $_.Value }
 }
@@ -37,7 +37,7 @@ $SrtHost = if ($Production -eq '127.0.0.1') { '127.0.0.1' } else { $Production }
 if ($Switcher -eq 'vmix') {
     Write-Host ''
     Write-Host 'En vMix: Settings > Outputs/NDI/SRT > Output 2 (o 3/4) > Source: la camara del tablero > SRT,' -ForegroundColor Cyan
-    Write-Host 'Type: Listener, puerto 9000, H.264, 2500 kbps, 1920x1080.' -ForegroundColor Cyan
+    Write-Host 'Type: Listener, puerto 9000, H.264, 2500 kbps, 1920x1080, Latency 120 (en la misma red) o 400 (por ZeroTier).' -ForegroundColor Cyan
     $Config['board_mode'] = 'stream'
     Write-Host 'Para probar sin vMix se puede poner la ruta de un video o una foto del tablero (C:\...\tablero.mp4).' -ForegroundColor Cyan
     $Config['board_url'] = Ask 'Salida SRT del tablero (IP:puerto, srt://, rtsp:// o archivo)' $(if ($Config['board_url']) { $Config['board_url'] } else { "${SrtHost}:9000" })

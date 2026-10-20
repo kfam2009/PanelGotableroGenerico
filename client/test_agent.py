@@ -41,6 +41,7 @@ class ClientTests(unittest.TestCase):
         config=self.config(**vmix)
         self.assertEqual((config['switcher'],config['board_mode'],config['production_host']),('vmix','stream','172.27.4.10'))
         self.assertEqual(config['board_url'],'srt://172.27.4.10:9000?mode=caller&latency=400000')
+        self.assertIn('latency=120000',self.config(**{**vmix,'production_host':'127.0.0.1','board_url':'127.0.0.1:9000'})['board_url'])
         self.assertEqual(self.config(**{**vmix,'board_url':'srt://172.27.4.10:9000?latency=800000'})['board_url'],'srt://172.27.4.10:9000?latency=800000&mode=caller')
         self.assertEqual(self.config(**{**vmix,'board_url':'rtsp://172.27.4.50/stream'})['board_url'],'rtsp://172.27.4.50/stream')
         with self.assertRaises(ValueError):self.config(**{**vmix,'board_url':''})
