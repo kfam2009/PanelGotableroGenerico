@@ -35,9 +35,9 @@ El instalador obtiene go2rtc 1.9.14 de su repositorio oficial y verifica SHA-256
 
 El lector también puede correr en una PC distinta de la de OBS, si ambas están en la misma red de ZeroTier. Así la PC del club solo necesita OBS.
 
-1. En la PC de OBS, activar **Habilitar autenticación** en el servidor WebSocket y anotar la contraseña. Con OBS remoto el lector no arranca sin clave.
+1. En la PC de OBS, habilitar el servidor WebSocket. La autenticación es opcional: sin clave, cualquier equipo de la red ZeroTier puede controlar OBS, así que conviene que esa red tenga solo equipos de confianza.
 2. Anotar las dos IP de ZeroTier: la de la PC de OBS y la de la PC del lector.
-3. En la PC del lector, ejecutar `client/PREPARAR-ZEROTIER.cmd`. Instala lo necesario si falta y pide la IP de OBS, la contraseña y la IP de ZeroTier de esta PC (la detecta sola). También se pueden editar `obs_host`, `obs_password` y `bridge_address` en `client/config.json`.
+3. En la PC del lector, ejecutar `client/PREPARAR-ZEROTIER.cmd`. Instala lo necesario si falta y pide la IP de OBS, la contraseña (opcional) y la IP de ZeroTier de esta PC (la detecta sola). También se pueden editar `obs_host`, `obs_password` y `bridge_address` en `client/config.json`.
 4. En el firewall de Windows, permitir solo lo necesario (PowerShell como administrador):
    - PC de OBS: `New-NetFirewallRule -DisplayName "OBS WebSocket ZeroTier" -Direction Inbound -Protocol TCP -LocalPort 4455 -RemoteAddress IP_DEL_LECTOR -Action Allow`
    - PC del lector: `New-NetFirewallRule -DisplayName "Panel Go salida ZeroTier" -Direction Inbound -Protocol TCP -LocalPort 8772 -RemoteAddress IP_DE_OBS -Action Allow`

@@ -29,7 +29,7 @@ class ClientTests(unittest.TestCase):
         config=self.config(**remote)
         self.assertEqual((config['obs_host'],config['bridge_address']),('172.27.4.10','172.27.4.221'))
         self.assertEqual(self.config()['bridge_address'],'')
-        with self.assertRaises(ValueError):self.config(**{**remote,'obs_password':''})
+        self.assertEqual(self.config(**{**remote,'obs_password':''})['obs_host'],'172.27.4.10')
         with self.assertRaises(ValueError):self.config(**{**remote,'bridge_address':''})
         with self.assertRaises(ValueError):self.config(**{**remote,'bridge_address':'172.27.4.10'})
         with self.assertRaises(ValueError):self.config(**{**remote,'obs_host':'8.8.8.8'})

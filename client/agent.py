@@ -43,7 +43,6 @@ def load_config(path,local_only=False):
         except ValueError:raise ValueError('obs_host debe ser 127.0.0.1 o la IP de ZeroTier de la PC con OBS.')
         if not obs_ip.is_loopback:
             if not obs_ip.is_private:raise ValueError('obs_host remoto debe ser una IP privada de ZeroTier, no una IP publica.')
-            if not str(config.get('obs_password','')):raise ValueError('Para usar OBS remoto hay que activar la autenticacion del WebSocket de OBS y cargar obs_password.')
             bridge=str(config.get('bridge_address','')).strip()
             try:bridge_ip=ipaddress.ip_address(bridge)
             except ValueError:raise ValueError('Cargar bridge_address con la IP de ZeroTier de esta PC.')

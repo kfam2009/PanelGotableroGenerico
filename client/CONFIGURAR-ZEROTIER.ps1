@@ -15,9 +15,9 @@ if (-not $ObsHost) { throw 'Falta la IP de la PC con OBS.' }
 $Bridge = Read-Host "IP de ZeroTier de ESTA PC (Enter: $Suggested)"
 if (-not $Bridge) { $Bridge = $Suggested }
 if (-not $Bridge) { throw 'Falta la IP de ZeroTier de esta PC.' }
-$Secure = Read-Host 'Contrasena del WebSocket de OBS' -AsSecureString
+$Secure = Read-Host 'Contrasena del WebSocket de OBS (Enter: sin autenticacion)' -AsSecureString
 $Password = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($Secure))
-if (-not $Password) { throw 'Con OBS remoto hay que activar la autenticacion del WebSocket y usar su contrasena.' }
+if (-not $Password) { Write-Host 'OBS sin clave: cualquier equipo de la red ZeroTier puede controlar OBS.' -ForegroundColor Yellow }
 $Board = Read-Host "Fuente del tablero en OBS (Enter: $($Config['source']))"
 if ($Board) { $Config['source'] = $Board }
 $Game = Read-Host "Fuente del juego en OBS (Enter: $($Config['game_source']))"
