@@ -205,7 +205,9 @@ class Feed:
     def process(self,im,now=None):
         now=now or time.time();raw,digits=read_values(im)
         power=reader_module.board_power_state(im,digits)
-        out=io.BytesIO();im.crop((1360,350,1700,610)).save(out,format='PNG')
+        crop=getattr(self.args,'board_crop',None)
+        view=im.crop(tuple(crop)) if crop else im.resize((640,360))
+        out=io.BytesIO();view.save(out,format='PNG')
         with self.lock:
             self.board=out.getvalue();self.connected=True;self.captured=now;self.digits=digits
             self.error='Sin capturas recientes del tablero'

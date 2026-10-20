@@ -185,7 +185,7 @@ def main():
     name=config['switcher_name']
     board_stream=StreamFrames(config['board_url'],ffmpeg=config.get('ffmpeg_path','')) if config['board_mode']=='stream' else None
     feed=Feed(SimpleNamespace(host=config['obs_host'],obs_port=config['obs_port'],source=config.get('source','Camara 2'),game_source=config.get('game_source','camara 01'),interval=.2,
-                             game_rtsp=config.get('game_rtsp',''),video_port=int(config.get('video_port',1987)),board_stream=board_stream))
+                             game_rtsp=config.get('game_rtsp',''),video_port=int(config.get('video_port',1987)),board_stream=board_stream,board_crop=config.get('board_crop')))
     uplink=Uplink(feed,config)
     if config['game_url']:game=StreamPreview(config['game_url'],f'Salida de {name}',ffmpeg=config.get('ffmpeg_path',''))
     elif config['switcher']=='vmix':game=NoPreview('Sin monitor: cargar game_url con una salida SRT del programa de vMix')
