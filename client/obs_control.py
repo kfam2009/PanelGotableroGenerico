@@ -6,6 +6,7 @@ import secrets
 import threading
 import time
 import urllib.request
+from urllib.parse import urlsplit
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
 try:
@@ -36,14 +37,18 @@ def save_graphic_settings(values,path=None):
         temporary.write_text(json.dumps(merged,ensure_ascii=False),encoding='utf-8')
         temporary.replace(target)
     return merged
-READ={'GetCurrentProgramScene','GetSceneItemList','GetInputList','GetVideoSettings','GetSceneItemEnabled','GetVirtualCamStatus'}
-WRITE={'CreateInput','SetSceneItemTransform','SetSceneItemEnabled','StartVirtualCam'}
+READ={'GetCurrentProgramScene','GetSceneItemList','GetInputList','GetVideoSettings','GetSceneItemEnabled','GetVirtualCamStatus','GetInputSettings'}
+WRITE={'CreateInput','SetSceneItemTransform','SetSceneItemEnabled','StartVirtualCam','SetInputSettings'}
 
 class GraphicsOBS(OBS):
     def request(self,kind,data=None):
         if kind not in READ|WRITE:raise ValueError('Operacion no permitida')
         if kind=='CreateInput' and ((data or {}).get('inputName')!=SOURCE or (data or {}).get('sceneItemEnabled') is not False):
             raise ValueError('Solo se crea el marcador desactivado')
+        if kind in ('GetInputSettings','SetInputSettings') and (data or {}).get('inputName')!=SOURCE:
+            raise ValueError('Solo se consulta o cambia la fuente del marcador')
+        if kind=='SetInputSettings' and set((data or {}).get('inputSettings',{}))!={'url'}:
+            raise ValueError('Solo se cambia la direccion del marcador')
         rid=str(time.monotonic_ns())
         self.send({'op':6,'d':{'requestType':kind,'requestId':rid,'requestData':data or {}}})
         while True:
@@ -90,7 +95,14 @@ class GraphicControl:
                 enabled=obs.request('GetSceneItemEnabled',{'sceneName':scene,'sceneItemId':item_id})['sceneItemEnabled']
                 return {'ready':True,'enabled':enabled,'scene':scene,'created':True}
             finally:obs.close()
-    def set_enabled(self,enabled):
+    def take_over(self,obs,url):
+        """The panel that shows the graphic also becomes its data source."""
+        current=obs.request('GetInputSettings',{'inputName':SOURCE})['inputSettings'].get('url','')
+        old,new=urlsplit(current),urlsplit(url)
+        if old.path=='/graphics.html' and (old.scheme,old.netloc)!=(new.scheme,new.netloc):
+            target=new._replace(query=old.query).geturl()
+            obs.request('SetInputSettings',{'inputName':SOURCE,'inputSettings':{'url':target},'overlay':True})
+    def set_enabled(self,enabled,url=''):
         if type(enabled) is not bool:raise ValueError('Se requiere un estado booleano explicito')
         if enabled and Path(__file__).with_name('.obs-safety-lock').exists():raise ValueError('Prueba pausada durante la transmision')
         with self.lock:
@@ -98,6 +110,7 @@ class GraphicControl:
             try:
                 scene,item=self.locate(obs)
                 if not item:raise ValueError('Agregar primero el marcador a OBS')
+                if enabled and url:self.take_over(obs,url)
                 obs.request('SetSceneItemEnabled',{'sceneName':scene,'sceneItemId':item['sceneItemId'],'sceneItemEnabled':enabled})
                 actual=obs.request('GetSceneItemEnabled',{'sceneName':scene,'sceneItemId':item['sceneItemId']})['sceneItemEnabled']
                 return {'ready':True,'enabled':actual,'scene':scene,'source':SOURCE}
@@ -132,7 +145,7 @@ def make_control_server(control,port=8774,graphic_url='http://127.0.0.1:8771/gra
                 data=json.loads(self.rfile.read(length))
                 if self.path=='/virtual-camera':self.reply(200,control.start_virtual_camera());return
                 if self.path=='/settings':self.reply(200,{'ok':True,'settings':save_graphic_settings(data)});return
-                result=control.install(graphic_url) if self.path=='/install' else control.set_enabled(data.get('enabled'))
+                result=control.install(graphic_url) if self.path=='/install' else control.set_enabled(data.get('enabled'),graphic_url)
                 self.reply(200,result)
             except Exception:self.reply(400,{'error':'No se pudo cambiar el marcador en OBS'})
     server=ThreadingHTTPServer(('127.0.0.1',port),Handler)
