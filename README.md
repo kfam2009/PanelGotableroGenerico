@@ -72,6 +72,16 @@ New-NetFirewallRule -DisplayName "Panel Go grafica" -Direction Inbound -Protocol
 
 `config.json` es privado y está excluido de Git. Los valores de ejemplo están en `client/config.example.json`.
 
+## Acceso remoto por ZeroTier (código y calibración)
+
+Opcional. En el asistente (`CONFIGURAR.cmd`), cargar la **IP de ZeroTier del técnico** y una **contraseña** (8+ caracteres). Con eso, el lector abre `http://IP_ZEROTIER_DEL_CLUB:8773/`:
+
+- Solo responde a la IP del técnico y pide la contraseña (usuario: cualquiera). Diez errores seguidos bloquean 5 minutos.
+- Expone únicamente la carga del código del partido, la lectura en vivo y **Calibrar tablero**. No hay cámaras de juego, gráfica ni control de vMix/OBS.
+- La primera vez Windows puede preguntar si permite Python en la red: aceptar en redes privadas.
+
+Claves en `config.json`: `remote_admin_ip`, `remote_password`.
+
 ## Calibrar el tablero
 
 En el panel local, **Calibrar tablero ↗** abre `http://127.0.0.1:8771/calibrar`:
