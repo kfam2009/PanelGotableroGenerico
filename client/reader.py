@@ -388,8 +388,16 @@ def opening(m,r=2):
 def read_cells(im,quad,count):
     """Fixed LED positions: the group is split in equal cells, one digit each. ' ' marks an unlit cell."""
     m=opening(group_mask(warp_group(im,quad)));h,w=m.shape;text=''
+    # Move each border to the darkest column nearby, so it cuts between digits even if the box is a bit off.
+    lo,hi=0,w
+    profile=m.sum(axis=0);edges=[lo]
+    for i in range(1,count):
+        guess=lo+(hi-lo)*i/count;span=max(1,int((hi-lo)/count*.2))
+        window=range(max(lo+1,int(guess)-span),min(hi-1,int(guess)+span)+1)
+        edges.append(min(window,key=lambda x:(profile[x],abs(x-guess))) if len(window) else int(guess))
+    edges.append(hi)
     for i in range(count):
-        x0,x1=round(w*i/count),round(w*(i+1)/count)
+        x0,x1=edges[i],edges[i+1]
         cell=np.zeros_like(m);cell[:,x0:x1]=m[:,x0:x1]
         labels,found=components(cell)
         # Colon dots, glare and bits of the neighbour digit are short: keep the digit body only.
