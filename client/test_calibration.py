@@ -74,6 +74,18 @@ class CalibrationTests(unittest.TestCase):
                 for i,c in enumerate(text):
                     if c!=' ':draw_style(draw,400+i*60,320,40,70,c,(250,250,250))
                 self.assertEqual(reader.read_group(frame,quad),text.strip(),(draw_style.__name__,text))
+    def test_fixed_cells_ignore_visible_unlit_segments(self):
+        frame=Image.new('RGB',(1920,1080),(25,25,28));draw=ImageDraw.Draw(frame)
+        def digit(x,y,d,color):
+            draw_digit(draw,x,y,40,70,'8',(120,105,110))   # unlit segments still reflect light
+            if d!=' ':draw_digit(draw,x,y,40,70,d,color)
+        for i,d in enumerate('0453'):digit(400+i*60,200,d,(255,80,40))
+        for i,d in enumerate(' 7'):digit(400+i*60,320,d,(60,240,150))
+        for i,d in enumerate('12'):digit(580+i*60,320,d,(60,240,150))
+        digit(500,440,'3',(250,250,250))
+        reader.apply_calibration({**CALIBRATION,'color':'auto','segments':'cells'})
+        values,texts=read_values(frame)
+        self.assertEqual(values,{'clock':'04:53','homeScore':'7','awayScore':'12','period':'3'},texts)
     def test_unlit_board_reads_nothing_in_auto_mode(self):
         reader.apply_calibration({**CALIBRATION,'color':'auto'})
         frame=Image.new('RGB',(1920,1080),(30,30,34))

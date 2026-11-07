@@ -32,7 +32,7 @@ THRESHOLD = 180
 CALIBRATED = False
 GROUP_QUADS = {}
 SEGMENTS = 'auto'
-SEGMENT_MODES = ('auto','segments','solid')
+SEGMENT_MODES = ('auto','segments','solid','cells')
 
 
 def split_quad(quad,count):
@@ -208,12 +208,30 @@ def otsu(values):
 def group_mask(group_image):
     a=np.asarray(group_image.convert('RGB')).astype(float)
     if COLOR!='auto':return mask(group_image)
-    value=a.max(axis=2);t=max(otsu(value),60)
+    high,low=a.max(axis=2),a.min(axis=2)
+    # Lit LEDs are bright and/or strongly colored; unlit segments that still reflect light are dull.
+    value=np.clip(high+.5*(high-low),0,255)
+    t=max(otsu(value),60)
     lit=value>t
     if not lit.any() or lit.all():return np.zeros_like(lit)
     # A dark board with no lit digits must not be split into fake shapes.
     if value[lit].mean()-value[~lit].mean()<45 or lit.mean()>.6:return np.zeros_like(lit)
+    # Boards whose unlit segments are visible: three levels (background, unlit, lit). Keep only the top one.
+    upper=value[lit];t2=otsu(upper)
+    top,mid=upper[upper>t2],upper[upper<=t2]
+    if top.size>=upper.size*.15 and mid.size>=upper.size*.15 and top.mean()-mid.mean()>=45 and top.mean()>=235 and mid.mean()<210:
+        lit=value>t2
     return lit
+
+
+def dilate(m,r):
+    out=m.copy()
+    for dy in range(-r,r+1):
+        for dx in range(-r,r+1):
+            b=np.zeros_like(m)
+            b[max(-dy,0):m.shape[0]+min(-dy,0),max(-dx,0):m.shape[1]+min(-dx,0)]=m[max(dy,0):m.shape[0]+min(dy,0),max(dx,0):m.shape[1]+min(dx,0)]
+            out|=b
+    return out
 
 
 def components(m):
@@ -231,18 +249,44 @@ def components(m):
     return labels,found
 
 
-SHAPE_ZONES={'a':(.3,0,.7,.16),'b':(.7,.14,1,.44),'c':(.7,.56,1,.86),'d':(.3,.84,.7,1),'e':(0,.56,.3,.86),'f':(0,.14,.3,.44),'g':(.3,.43,.7,.57)}
+SHAPE_ZONES={'a':(.3,0,.7,.16),'b':(.7,.14,1,.42),'c':(.7,.6,1,.86),'d':(.3,.84,.7,1),'e':(0,.6,.3,.86),'f':(0,.14,.3,.42),'g':(.3,.43,.7,.57)}
 
 
 def classify_shape(m):
     ys,xs=np.nonzero(m)
     if len(xs)<12:return None
     m=m[ys.min():ys.max()+1,xs.min():xs.max()+1];h,w=m.shape
-    if w<h*.32:return '1'
+    if w<h*.39:return '1'
     # Segment zones over the shape's own box: wide enough for thin LED segments and slanted fonts.
     scores={k:float(m[int(y0*h):max(int(y0*h)+1,int(y1*h)),int(x0*w):max(int(x0*w)+1,int(x1*w))].mean()) for k,(x0,y0,x1,y1) in SHAPE_ZONES.items()}
-    active=''.join(k for k in sorted(scores) if scores[k]>(.35 if k=='g' else .25))
+    active=''.join(k for k in sorted(scores) if scores[k]>(.35 if k=='g' else .3 if k in 'ef' else .25))
     return PATTERNS.get(active)
+
+
+def split_columns(shape,x0,x1,tall,depth=0):
+    """Column ranges of the digits in one shape. Glow can glue a digit to its neighbour or to a colon dot."""
+    profile=shape[:,x0:x1].sum(axis=0)
+    if not profile.any():return []
+    peak=profile.max();left,right=0,len(profile)
+    if right-left<=tall*.8 or depth>2:return [(x0+left,x0+right)]
+    def height(a,b):
+        rows=np.nonzero(shape[:,x0+a:x0+b].any(axis=1))[0]
+        return rows[-1]-rows[0]+1 if len(rows) else 0
+    # A colon dot glued on a side: weak edge columns that cover only a small band of rows.
+    edge=left
+    while edge<right and profile[edge]<peak*.3:edge+=1
+    if edge>left and height(left,edge)<tall*.35:left=edge
+    edge=right
+    while edge>left and profile[edge-1]<peak*.3:edge-=1
+    if edge<right and height(edge,right)<tall*.35:right=edge
+    if right-left<=tall*.8:return [(x0+left,x0+right)]
+    w=right-left
+    for col in sorted(range(left+int(w*.25),right-int(w*.25)),key=lambda i:profile[i]):
+        if profile[col]>=peak*.5:break
+        # A real split leaves two full-height digits (cutting through a 4 or a 7 does not).
+        if height(left,col)>=tall*.75 and height(col,right)>=tall*.75:
+            return split_columns(shape,x0+left,x0+col,tall,depth+1)+split_columns(shape,x0+col,x0+right,tall,depth+1)
+    return [(x0+left,x0+right)]
 
 
 def read_group(im,quad):
@@ -279,14 +323,16 @@ def read_group(im,quad):
     # LED digits are drawn with separate horizontal bars (segments a, g, d); solid digits are single shapes.
     bars=sum(c['n'] for c in found if c['x1']-c['x0']>(c['y1']-c['y0'])*1.8 and c['y1']-c['y0']<D*.3)
     half=any(c['y1']-c['y0']>(c['x1']-c['x0'])*1.5 and D*.25<=c['y1']-c['y0']<D*.6 and c['n']>=total*.03 for c in clusters)
-    segmented=SEGMENTS=='segments' or (SEGMENTS=='auto' and (bars>=total*.18 or half))
+    segmented=SEGMENTS=='segments' or (SEGMENTS=='auto' and (bars>=total*.12 or half))
     dots=[c for c in clusters if small(c)]
     clusters=[c for c in clusters if not small(c)]
     if segmented:
         # LED digits: horizontal and vertical segments are separate shapes with small gaps.
         gx,gy=D*.12+1,D*.25
         def near(a,b):
-            xgap,ygap=gaps(a,b);return xgap<=gx and ygap<=gy
+            xgap,ygap=gaps(a,b)
+            # Never join pieces into something wider than one digit (that would glue two digits).
+            return xgap<=gx and ygap<=gy and max(a['x1'],b['x1'])-min(a['x0'],b['x0'])<=D
         clusters=merge(clusters,near)
     tall=max(c['y1']-c['y0'] for c in clusters) if clusters else 0
     if tall<GROUP_HEIGHT*.3:return ''
@@ -295,7 +341,13 @@ def read_group(im,quad):
     top=min(c['y0'] for c in merged);bottom=max(c['y1'] for c in merged);D=bottom-top
     dots=[c for c in dots if c['y0']>=top+D*.6 and c['y1']<=bottom+D*.1]
     dots=[c for c in dots if merged[0]['x1']<=c['x0'] and c['x1']<=merged[-1]['x0']]
-    items=[(c['x0'],classify_shape(np.isin(labels,c['ids'])) or '?') for c in merged]+[(c['x0'],'.') for c in dots]
+    items=[(c['x0'],'.') for c in dots]
+    for c in merged:
+        shape=np.isin(labels,c['ids'])
+        ranges=[(c['x0'],c['x1'])] if segmented else split_columns(shape,c['x0'],c['x1'],tall)
+        for x0,x1 in ranges:
+            piece=np.zeros_like(shape);piece[:,x0:x1]=shape[:,x0:x1]
+            items.append((x0,classify_shape(piece) or '?'))
     return ''.join(t for _,t in sorted(items))
 
 
@@ -319,7 +371,52 @@ def interpret(key,text):
     return str(int(digits)) if len(digits)<=3 else None
 
 
+def opening(m,r=2):
+    """Erode then dilate: cuts the thin glow bridges that glue colon dots or neighbours to a digit."""
+    def shift_all(a,op):
+        out=a.copy()
+        for dy in range(-r,r+1):
+            for dx in range(-r,r+1):
+                b=np.zeros_like(a)
+                ys=slice(max(dy,0),a.shape[0]+min(dy,0));yd=slice(max(-dy,0),a.shape[0]+min(-dy,0))
+                xs=slice(max(dx,0),a.shape[1]+min(dx,0));xd=slice(max(-dx,0),a.shape[1]+min(-dx,0))
+                b[yd,xd]=a[ys,xs];out=op(out,b)
+        return out
+    return shift_all(shift_all(m,np.logical_and),np.logical_or)
+
+
+def read_cells(im,quad,count):
+    """Fixed LED positions: the group is split in equal cells, one digit each. ' ' marks an unlit cell."""
+    m=opening(group_mask(warp_group(im,quad)));h,w=m.shape;text=''
+    for i in range(count):
+        x0,x1=round(w*i/count),round(w*(i+1)/count)
+        cell=np.zeros_like(m);cell[:,x0:x1]=m[:,x0:x1]
+        labels,found=components(cell)
+        # Colon dots, glare and bits of the neighbour digit are short: keep the digit body only.
+        keep=[c for c in found if c['y1']-c['y0']>=h*.2 and c['n']>=8]
+        body=[c for c in keep if c['y1']-c['y0']>=h*.35]
+        if not body:text+=' ';continue
+        lo,hi=min(c['x0'] for c in body),max(c['x1'] for c in body)
+        ids=[c['ids'][0] for c in keep if c['x1']>lo and c['x0']<hi]
+        shape=np.isin(labels,ids)
+        text+=classify_shape(shape) or '?'
+    return text
+
+
+def cell_text(key,text):
+    """Unlit leading cells are blanks; an unlit cell between digits makes the reading invalid."""
+    stripped=text.lstrip(' ')
+    if not stripped:return ''
+    if ' ' in stripped.rstrip(' ') or (key!='clock' and stripped.endswith(' ')):return '?'
+    if key=='clock' and stripped.endswith(' ') and len(stripped.rstrip(' '))==3:return stripped.rstrip(' ')[:2]+'.'+stripped.rstrip(' ')[2]
+    return stripped.rstrip(' ')
+
+
 def read_calibrated(im):
+    if SEGMENTS=='cells':
+        texts={key:cell_text(key,read_cells(im,group['quad'],group['digits'])) for key,group in GROUP_QUADS.items()}
+        values={key:value for key,text in texts.items() if (value:=interpret(key,text)) is not None}
+        return values,{key:(text or None) for key,text in texts.items()}
     texts={key:read_group(im,group['quad']) for key,group in GROUP_QUADS.items()}
     values={key:value for key,text in texts.items() if (value:=interpret(key,text)) is not None}
     return values,{key:(text or None) for key,text in texts.items()}
