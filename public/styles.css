@@ -591,3 +591,7 @@ club-game video { width:100%; height:100%; object-fit:contain; }
  .control-page .output-head { padding:6px 10px; font-size:10px; }
  .control-page #obsGraphicButton { padding:5px 9px; }
 }
+
+.manual-toggle{display:block;margin-top:5px;padding:3px 8px;font:600 10px Segoe UI,Arial,sans-serif;color:#cfd5df;background:#20242c;border:1px solid #3a404b;border-radius:6px;cursor:pointer}
+.manual-toggle.on{background:#7a4b00;border-color:#f0a020;color:#fff}
+input.manual-value{border-color:#f0a020!important;color:#ffd27a!important}

@@ -197,6 +197,7 @@ class Feed:
         self.last_samples={};self.digits={};self.frame=None
         self.board_off=False;self.dark_since=None
         self.gate=None;self.locked=False
+        self.manual={}
 
     def held(self):
         """True while the license gate blocks reading; the graphic then shows no score."""
@@ -218,12 +219,26 @@ class Feed:
         with self.lock:
             fields={k:{'age':round(now-self.confirmed[k],1) if k in self.confirmed else None,
                        'valid':k in self.confirmed and now-self.confirmed[k]<4} for k in KEYS}
+            values=dict(self.values)
+            if not self.locked:
+                # Values typed by the operator replace the reading until they go back to automatic.
+                for key,value in self.manual.items():values[key]=value;fields[key]={'age':0,'valid':True,'manual':True}
             fresh=self.connected and now-self.captured<4
             good=fresh and all(v['valid'] for v in fields.values())
-            return {**self.values,'service':'panelgo-tablero','version':reader_module.READER_VERSION,'pid':os.getpid(),'connected':fresh,'ocrStatus':'standby' if fresh and self.board_off else 'ok' if good else 'waiting','boardOff':fresh and self.board_off,
+            return {**values,'manual':sorted(self.manual),'service':'panelgo-tablero','version':reader_module.READER_VERSION,'pid':os.getpid(),'connected':fresh,'ocrStatus':'standby' if fresh and self.board_off else 'ok' if good else 'waiting','boardOff':fresh and self.board_off,
                     'status':'Tablero apagado · listo para iniciar' if fresh and self.board_off else 'Lectura automatica activa' if good else ('Verificando lectura del tablero' if fresh else self.error),
                     'fields':fields,'updatedAt':datetime.fromtimestamp(self.captured,timezone.utc).isoformat() if self.captured else None,
                     'boardImage':'board.png','source':self.args.source,'revision':self.revision,'digits':self.digits}
+
+    def set_manual(self,key,value):
+        if key not in KEYS:raise ValueError('Dato invalido')
+        with self.lock:
+            if value is None:self.manual.pop(key,None)
+            else:
+                value=str(value).strip()
+                if not value or len(value)>8:raise ValueError('Valor invalido')
+                self.manual[key]=value
+            self.revision+=1;self.lock.notify_all()
 
     def process(self,im,now=None):
         now=now or time.time();raw,digits=read_values(im)

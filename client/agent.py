@@ -206,6 +206,16 @@ def local_server(feed,uplink,game,port,license=None,bind='127.0.0.1',remote=None
                 data=json.dumps(result).encode()
                 self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
                 return
+            if self.path=='/api/manual':
+                try:
+                    length=int(self.headers.get('Content-Length','0'))
+                    if not 0<length<=500:raise ValueError('Pedido invalido')
+                    body=json.loads(self.rfile.read(length));feed.set_manual(body.get('key'),body.get('value'))
+                    status,result=200,{'ok':True,'manual':sorted(feed.manual)}
+                except Exception as exc:status,result=400,{'error':str(exc) if isinstance(exc,ValueError) else 'No se pudo cambiar'}
+                data=json.dumps(result).encode()
+                self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
+                return
             if self.path!='/api/calibration':self.send_error(404);return
             try:
                 length=int(self.headers.get('Content-Length','0'))

@@ -14,6 +14,7 @@ const state = {...defaults, ...savedSettings()};
 for (const [key,value] of params) if (key in defaults && (!liveMode || !liveKeys.includes(key))) state[key] = value;
 if (liveMode) for (const key of liveKeys) state[key] = defaults[key];
 let lastFeed = null, lastEvent = 0, polling = false;
+const manualKeys = new Set();
 let remoteMonitorsActive = false, lastLocalEvent = 0;
 let programStream=null;
 
@@ -30,7 +31,7 @@ function render() {
   });
   document.querySelectorAll('input:not([type=file])').forEach(input => {
     if (input.id in state && document.activeElement !== input) input.value = state[input.id];
-    if (liveMode && liveKeys.includes(input.id)) {input.readOnly = true; input.title = 'Lectura automática del tablero';}
+    if (liveMode && liveKeys.includes(input.id)) {const manual = manualKeys.has(input.id); input.readOnly = !manual; input.title = manual ? 'Valor manual' : 'Lectura automática del tablero'; input.classList.toggle('manual-value', manual);}
   });
   const link = document.getElementById('rendererLink');
   if (link) {
@@ -60,6 +61,7 @@ function acceptFeed(live, local=false) {
   if(!local && Date.now()-lastLocalEvent<2500)return;
   if(local)lastLocalEvent=Date.now();
   if (!liveMode || live.service !== 'panelgo-tablero') return;
+  if (Array.isArray(live.manual)) syncManual(live.manual);
   lastFeed = live; lastEvent = Date.now();
   for (const key of liveKeys) if (typeof live[key] === 'string') state[key] = live[key];
   render(); showHealth();
@@ -293,3 +295,31 @@ const stageSizeObserver=new ResizeObserver(entries=>{
  if(changed)fitStage();
 });
 document.querySelectorAll('.stage-frame').forEach(frame=>stageSizeObserver.observe(frame));
+
+// Manual override: when the board cannot be read, the operator types the value and it goes to the graphic.
+async function sendManual(key, value) {
+  try {
+    const r = await fetch('/api/manual', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({key, value})});
+    const d = await r.json(); if (r.ok) syncManual(d.manual);
+  } catch {}
+}
+function syncManual(keys) {
+  manualKeys.clear(); keys.forEach(k => manualKeys.add(k));
+  document.querySelectorAll('.manual-toggle').forEach(b => {const on = manualKeys.has(b.dataset.key); b.textContent = on ? 'Manual ✓' : 'Manual'; b.classList.toggle('on', on);});
+  render();
+}
+if (liveMode && ['127.0.0.1','localhost'].includes(location.hostname)) {
+  for (const key of liveKeys) {
+    const input = document.getElementById(key); if (!input) continue;
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'manual-toggle'; button.dataset.key = key; button.textContent = 'Manual';
+    button.title = 'Escribir este dato a mano en lugar de leerlo del tablero';
+    input.insertAdjacentElement('afterend', button);
+    button.addEventListener('click', () => {
+      if (manualKeys.has(key)) { sendManual(key, null); return; }
+      const value = (input.value || '').replace(/^-+:?-*$/, '') || (key === 'clock' ? '10:00' : '0');
+      manualKeys.add(key); render(); input.value = value; sendManual(key, value); input.focus(); input.select();
+    });
+    let timer = 0;
+    input.addEventListener('input', () => { if (!manualKeys.has(key)) return; clearTimeout(timer); timer = setTimeout(() => sendManual(key, input.value.trim() || null), 250); });
+  }
+}
