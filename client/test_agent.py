@@ -68,6 +68,15 @@ class ClientTests(unittest.TestCase):
             with patch('core.read_values',return_value=({'awayScore':value},{})):feed.process(frame,when)
         self.assertEqual(feed.values['awayScore'],'42')
 
+    def test_implausible_jumps_need_a_long_streak(self):
+        feed=Feed(SimpleNamespace(source='Camara 2'));frame=Image.new('RGB',(1920,1080))
+        for when,value in [(100,'0'),(101,'0'),(102,'81'),(103,'81'),(104,'0'),(105,'81'),(106,'81')]:
+            with patch('core.read_values',return_value=({'awayScore':value},{})):feed.process(frame,when)
+        self.assertEqual(feed.values['awayScore'],'0')
+        for when in range(107,112):
+            with patch('core.read_values',return_value=({'awayScore':'81'},{})):feed.process(frame,when)
+        self.assertEqual(feed.values['awayScore'],'81')
+
     def test_unconfirmed_score_change_is_ignored(self):
         feed=Feed(SimpleNamespace(source='Camara 2'));frame=Image.new('RGB',(1920,1080))
         for when,value in [(100,'38'),(101,'38'),(102,'18'),(103,'38')]:

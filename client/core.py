@@ -267,19 +267,25 @@ class Feed:
                 # One unreadable frame (glare, blur) must not throw away the readings already collected.
                 if value is None:continue
                 recent=self.pending.get(key,(None,0,[]))
-                prior,count=recent[0],recent[1];history=(recent[2] if len(recent)>2 else [])[-2:]+[value]
-                count=count+1 if value==prior else 1
-                # A change is accepted when it shows up in two of the last three readings.
-                if history.count(value)>=2:count=max(count,2)
+                prior,streak=recent[0],recent[1];history=(recent[2] if len(recent)>2 else [])[-2:]+[value]
+                streak=streak+1 if value==prior else 1
+                # A change is accepted with two equal readings in a row, or in two of the last three.
+                accept=streak>=2 or history.count(value)>=2
                 if key=='clock' and prior is not None:
                     elapsed=now-self.last_samples.get(key,now)
                     delta=clock_seconds(prior)-clock_seconds(value)
                     # A running clock need not repeat the same second on two screenshots.
-                    if 0<=delta<=max(2,elapsed*1.7+1) and elapsed<10:count=2
+                    if 0<=delta<=max(2,elapsed*1.7+1) and elapsed<10:accept=True
+                # Implausible jumps (0 to 81 points, the clock jumping minutes) need a longer streak to be believed.
+                if key in self.confirmed and value!=self.values[key]:
+                    try:
+                        if key in ('homeScore','awayScore') and abs(int(value)-int(self.values[key]))>4:accept=streak>=5
+                        if key=='clock' and abs(clock_seconds(value)-clock_seconds(self.values[key]))>max(5,now-self.confirmed[key]+3):accept=streak>=4
+                    except ValueError:pass
                 self.last_samples[key]=now
-                self.pending[key]=(value,count,history)
-                # Previously confirmed values can refresh immediately. Changes require two frames.
-                if (value==self.values[key] and key in self.confirmed) or count>=2:
+                self.pending[key]=(value,streak,history)
+                # Previously confirmed values refresh immediately.
+                if (value==self.values[key] and key in self.confirmed) or accept:
                     self.values[key]=value;self.confirmed[key]=now
             self.revision+=1;self.lock.notify_all()
 
