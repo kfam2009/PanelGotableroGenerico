@@ -8,6 +8,7 @@ import io
 import importlib
 import json
 import logging
+import math
 import os
 import socket
 import struct
@@ -159,6 +160,61 @@ def clock_seconds(value):
     return float(value)
 
 
+class ClockTracker:
+    """The panel runs the clock itself; board readings only start it, stop it and keep it in step.
+
+    Misread frames of a running clock (13:01 among 13:05) never reach the graphic.
+    """
+    def __init__(self):self.reset()
+
+    def reset(self):
+        self.running=False;self.anchor=0.;self.anchor_time=0.;self.tenths=False;self.wide=True;self.recent=[];self.stopped_at=None
+
+    def remaining(self,now):return max(0.,self.anchor-(now-self.anchor_time))
+
+    def text(self,now):
+        left=self.remaining(now)
+        if left<60:return f'{math.ceil(left*10-1e-6)/10:04.1f}'
+        whole=math.ceil(left-1e-6);return f'{whole//60:02d}:{whole%60:02d}'
+
+    def start(self,value,since):
+        self.running=True;self.anchor=value;self.anchor_time=since;self.stopped_at=None
+
+    def stop(self,value):
+        self.running=False;self.stopped_at=value
+
+    def update(self,text,now):
+        """Feeds one reading. Returns the value to show when the clock is stopped, else None."""
+        value=clock_seconds(text);self.tenths='.' in text
+        self.recent=[(t,v) for t,v in self.recent if now-t<=2.5]+[(now,value)]
+        same=[t for t,v in self.recent if v==value]
+        if not self.running:
+            # Starts when the board shows a lower value twice (in 2 of the last 3 readings) after a higher one.
+            last3=[v for _,v in self.recent[-3:]]
+            higher=[v for _,v in self.recent if 0<v-value<=3]
+            if self.stopped_at is not None and 0<self.stopped_at-value<=3:higher.append(self.stopped_at)
+            if higher and last3.count(value)>=2 and [v for _,v in self.recent].count(max(higher))>=2:
+                self.start(value,same[0]);return None
+            return None
+        guess=self.remaining(now)
+        recent=[v for t,v in self.recent if now-t<=1.6]
+        # Stopped: the board kept the same value for 1.5 s while our clock kept going.
+        if same and now-same[0]>=1.5 and recent.count(value)>=max(3,len(recent)*.7) and value>=guess+.8:
+            self.stop(value);return value
+        last3=[v for _,v in self.recent[-3:]]
+        if last3.count(value)>=2:
+            # A new second seen on the board: put our clock in step (only small corrections).
+            first=[t for t,v in self.recent[-3:] if v==value][0]
+            if abs(value-self.remaining(first))<=1.2 and value<self.anchor-(first-self.anchor_time)+.05:
+                if abs(value-self.remaining(first))>.15 or first>self.anchor_time+1.5:self.start(value,first)
+        # The operator set another time: four equal readings far from ours.
+        last4=[v for _,v in self.recent[-4:]]
+        if len(last4)==4 and last4.count(value)==4 and abs(value-guess)>2.5:
+            self.stop(value);return value
+        if guess<=0:self.stop(0.);return 0.
+        return None
+
+
 class GamePreview:
     """Independent low-bandwidth monitor; never delays the scoreboard reader."""
     def __init__(self,args):
@@ -198,6 +254,7 @@ class Feed:
         self.board_off=False;self.dark_since=None
         self.gate=None;self.locked=False
         self.manual={}
+        self.clock=ClockTracker()
 
     def held(self):
         """True while the license gate blocks reading; the graphic then shows no score."""
@@ -210,7 +267,7 @@ class Feed:
             if not self.locked or self.error!=reason:
                 self.locked=True;self.connected=False;self.error=reason
                 self.values={k:'--:--' if k=='clock' else '--' for k in KEYS}
-                self.confirmed.clear();self.pending.clear();self.last_samples.clear();self.board_off=False;self.dark_since=None
+                self.confirmed.clear();self.pending.clear();self.last_samples.clear();self.board_off=False;self.dark_since=None;self.clock.reset()
                 self.revision+=1;self.lock.notify_all()
         return True
 
@@ -220,6 +277,7 @@ class Feed:
             fields={k:{'age':round(now-self.confirmed[k],1) if k in self.confirmed else None,
                        'valid':k in self.confirmed and now-self.confirmed[k]<4} for k in KEYS}
             values=dict(self.values)
+            if self.clock.running and not self.board_off:values['clock']=self.clock.text(now)
             if not self.locked:
                 # Values typed by the operator replace the reading until they go back to automatic.
                 for key,value in self.manual.items():values[key]=value;fields[key]={'age':0,'valid':True,'manual':True}
@@ -257,22 +315,24 @@ class Feed:
                 if now-self.dark_since>=2:
                     self.board_off=True
                     self.values.update(clock='10:00',homeScore='0',awayScore='0')
-                    self.pending.clear();self.last_samples.clear()
+                    self.pending.clear();self.last_samples.clear();self.clock.reset()
                     for key in ('clock','homeScore','awayScore'):self.confirmed[key]=now
                     self.revision+=1;self.lock.notify_all();return
             else:
                 self.dark_since=None
                 if self.board_off:
-                    self.board_off=False;self.confirmed.clear();self.pending.clear();self.last_samples.clear()
+                    self.board_off=False;self.confirmed.clear();self.pending.clear();self.last_samples.clear();self.clock.reset()
             for key in KEYS:
                 value=raw.get(key)
                 # One unreadable frame (glare, blur) must not throw away the readings already collected.
                 if value is None:continue
                 recent=self.pending.get(key,(None,0,[]))
-                prior,streak=recent[0],recent[1];history=(recent[2] if len(recent)>2 else [])[-2:]+[value]
+                prior,streak=recent[0],recent[1];history=(recent[2] if len(recent)>2 else [])[-4:]+[value]
                 streak=streak+1 if value==prior else 1
                 # A change is accepted with two equal readings in a row, or in two of the last three.
-                accept=streak>=2 or history.count(value)>=2
+                accept=streak>=2 or history[-3:].count(value)>=2
+                # Scores may take a little longer: four equal readings in a row (about half a second).
+                if key in ('homeScore','awayScore'):accept=streak>=4 or history.count(value)>=4
                 if key=='clock' and prior is not None:
                     elapsed=now-self.last_samples.get(key,now)
                     delta=clock_seconds(prior)-clock_seconds(value)
@@ -286,9 +346,24 @@ class Feed:
                     except ValueError:pass
                 self.last_samples[key]=now
                 self.pending[key]=(value,streak,history)
+                if key=='clock':
+                    was_running=self.clock.running
+                    if not was_running and key in self.confirmed and self.clock.stopped_at is None:
+                        try:self.clock.stopped_at=clock_seconds(self.values['clock'])
+                        except ValueError:pass
+                    try:held=self.clock.update(value,now)
+                    except ValueError:held=None
+                    if self.clock.running:
+                        self.values[key]=self.clock.text(now);self.confirmed[key]=now;continue
+                    if held is not None:
+                        self.values[key]=self.clock.text(now) if was_running and held==0 else value;self.confirmed[key]=now;continue
+                    if was_running:continue
                 # Previously confirmed values refresh immediately.
                 if (value==self.values[key] and key in self.confirmed) or accept:
                     self.values[key]=value;self.confirmed[key]=now
+                    if key=='clock' and not self.clock.running:
+                        try:self.clock.stopped_at=clock_seconds(value)
+                        except ValueError:pass
             self.revision+=1;self.lock.notify_all()
 
     def run(self):

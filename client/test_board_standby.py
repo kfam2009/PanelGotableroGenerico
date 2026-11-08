@@ -38,7 +38,7 @@ class StandbyTests(unittest.TestCase):
         readings={'homeScore':'12','awayScore':'8','clock':'09:50','period':'1'}
         with patch('core.read_values',return_value=(readings,{'h1':'1'})):
             feed.process(frame,104);self.assertEqual(feed.values['homeScore'],'0')
-            feed.process(frame,105)
+            feed.process(frame,105);feed.process(frame,105.1);feed.process(frame,105.2)
         self.assertFalse(feed.board_off);self.assertEqual(feed.values['homeScore'],'12');self.assertEqual(feed.values['clock'],'09:50')
     def test_connection_loss_does_not_turn_the_standby_into_a_live_reading(self):
         feed=Feed(SimpleNamespace(source='Camara 2'));frame=dark_board();now=time.time()
