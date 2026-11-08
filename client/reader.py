@@ -4,7 +4,7 @@ from pathlib import Path
 from PIL import Image, ImageFilter
 import numpy as np
 
-READER_VERSION = '2026.11.08.1'
+READER_VERSION = '2026.11.08.3'
 CALIBRATION_PATH = Path(__file__).with_name('calibration.json')
 
 # Default calibration (original 7-segment red LED board), corners TL, TR, BR, BL in a 1920x1080 frame.
@@ -301,7 +301,10 @@ def split_columns(shape,x0,x1,tall,depth=0):
     if edge<right and height(edge,right)<tall*.35:right=edge
     if right-left<=tall*.8:return [(x0+left,x0+right)]
     w=right-left
-    for col in sorted(range(left+int(w*.25),right-int(w*.25)),key=lambda i:profile[i]):
+    # Cut only near the borders expected for the number of digits (never through the hollow of a 0).
+    n=max(2,round(w/(tall*.6)));span=max(1,int(w*.12))
+    candidates=sorted({c for k in range(1,n) for c in range(left+int(w*k/n)-span,left+int(w*k/n)+span+1) if left+int(w*.2)<=c<right-int(w*.2)})
+    for col in sorted(candidates,key=lambda i:profile[i]):
         if profile[col]>=peak*.5:break
         # A real split leaves two full-height digits (cutting through a 4 or a 7 does not).
         if height(left,col)>=tall*.75 and height(col,right)>=tall*.75:
@@ -364,7 +367,8 @@ def read_group(im,quad):
     items=[(c['x0'],'.') for c in dots]
     for c in merged:
         shape=np.isin(labels,c['ids'])
-        ranges=[(c['x0'],c['x1'])] if segmented else split_columns(shape,c['x0'],c['x1'],tall)
+        # Two digits glued by glow (blurred LED dots) are much wider than one digit: split them too.
+        ranges=[(c['x0'],c['x1'])] if segmented and c['x1']-c['x0']<=tall*.85 else split_columns(shape,c['x0'],c['x1'],tall)
         for x0,x1 in ranges:
             piece=np.zeros_like(shape);piece[:,x0:x1]=shape[:,x0:x1]
             items.append((x0,classify_shape(piece) or '?'))
@@ -462,8 +466,16 @@ def cell_text(key,text):
 def read_calibrated(im):
     if SEGMENTS=='cells':
         texts={key:cell_text(key,read_cells(im,group['quad'],group['digits'])) for key,group in GROUP_QUADS.items()}
+        # A doubtful cell (a mesh wire over a segment): try reading the group as free shapes instead.
+        for key,text in texts.items():
+            if '?' in text:
+                other=read_group(im,GROUP_QUADS[key]['quad'])
+                if other and '?' not in other and len(other.replace('.',''))==len(text.replace('.','')):texts[key]=other
         values={key:value for key,text in texts.items() if (value:=interpret(key,text)) is not None}
         return values,{key:(text or None) for key,text in texts.items()}
     texts={key:read_group(im,group['quad']) for key,group in GROUP_QUADS.items()}
     values={key:value for key,text in texts.items() if (value:=interpret(key,text)) is not None}
+    # A four-digit clock (07:11) shows three digits only as SS.T: a missing digit is a misread, not 0:48.
+    clock=texts.get('clock') or ''
+    if 'clock' in values and GROUP_QUADS['clock'].get('digits')==4 and len(clock.replace('.',''))==3 and '.' not in clock:del values['clock']
     return values,{key:(text or None) for key,text in texts.items()}

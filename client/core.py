@@ -207,9 +207,9 @@ class ClockTracker:
             first=[t for t,v in self.recent[-3:] if v==value][0]
             if abs(value-self.remaining(first))<=1.2 and value<self.anchor-(first-self.anchor_time)+.05:
                 if abs(value-self.remaining(first))>.15 or first>self.anchor_time+1.5:self.start(value,first)
-        # The operator set another time: four equal readings far from ours.
-        last4=[v for _,v in self.recent[-4:]]
-        if len(last4)==4 and last4.count(value)==4 and abs(value-guess)>2.5:
+        # The operator set another time: the same value far from ours for two whole seconds.
+        window=[(t,v) for t,v in self.recent if now-t<=2.]
+        if len(window)>=6 and now-window[0][0]>=1.8 and all(v==value for _,v in window) and abs(value-guess)>2.5:
             self.stop(value);return value
         if guess<=0:self.stop(0.);return 0.
         return None

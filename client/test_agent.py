@@ -125,9 +125,19 @@ class ClientTests(unittest.TestCase):
         t=101.0
         while t<103:
             shown=300-math.floor(t-101+1e-9)-1;readings.append((round(t,1),f'{shown//60:02d}:{shown%60:02d}'));t+=.2
-        readings+=[(103.2,'08:00'),(103.4,'08:00'),(103.6,'08:00'),(103.8,'08:00')]
+        readings+=[(round(103.2+i*.2,1),'08:00') for i in range(12)]
         self.run_clock(feed,readings)
         self.assertEqual(feed.values['clock'],'08:00')
+
+    def test_short_run_of_misreads_does_not_reset_the_clock(self):
+        feed=Feed(SimpleNamespace(source='Camara 2'))
+        readings=[(100,'04:20'),(100.2,'04:20')]
+        t=101.0
+        while t<103:
+            shown=260-math.floor(t-101+1e-9)-1;readings.append((round(t,1),f'{shown//60:02d}:{shown%60:02d}'));t+=.2
+        readings+=[(103.2,'00:48'),(103.4,'00:48'),(103.6,'00:48'),(103.8,'00:48'),(104.0,'04:16')]
+        self.run_clock(feed,readings)
+        self.assertTrue(feed.clock.running);self.assertEqual(feed.clock.text(104.1),'04:16')
 
 
 if __name__=='__main__':unittest.main()
