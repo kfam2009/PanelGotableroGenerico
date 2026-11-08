@@ -168,7 +168,7 @@ class ClockTracker:
     def __init__(self):self.reset()
 
     def reset(self):
-        self.running=False;self.anchor=0.;self.anchor_time=0.;self.tenths=False;self.wide=True;self.recent=[];self.stopped_at=None
+        self.running=False;self.anchor=0.;self.anchor_time=0.;self.tenths=False;self.recent=[];self.stopped_at=None;self.stop_time=0.
 
     def remaining(self,now):return max(0.,self.anchor-(now-self.anchor_time))
 
@@ -180,8 +180,8 @@ class ClockTracker:
     def start(self,value,since):
         self.running=True;self.anchor=value;self.anchor_time=since;self.stopped_at=None
 
-    def stop(self,value):
-        self.running=False;self.stopped_at=value
+    def stop(self,value,now=0.):
+        self.running=False;self.stopped_at=value;self.stop_time=now
 
     def update(self,text,now):
         """Feeds one reading. Returns the value to show when the clock is stopped, else None."""
@@ -189,31 +189,38 @@ class ClockTracker:
         self.recent=[(t,v) for t,v in self.recent if now-t<=2.5]+[(now,value)]
         same=[t for t,v in self.recent if v==value]
         if not self.running:
-            # Starts when the board shows a lower value twice (in 2 of the last 3 readings) after a higher one.
-            last3=[v for _,v in self.recent[-3:]]
-            higher=[v for _,v in self.recent if 0<v-value<=3]
-            if self.stopped_at is not None and 0<self.stopped_at-value<=3:higher.append(self.stopped_at)
-            if higher and last3.count(value)>=2 and [v for _,v in self.recent].count(max(higher))>=2:
-                self.start(value,same[0]);return None
+            # Starts when, after the stop, the board shows a lower value twice (2 of the last 3 readings).
+            after=[(t,v) for t,v in self.recent if t>=self.stop_time]
+            last3=[v for _,v in after[-3:]]
+            values=[x for _,x in after]
+            bases=[v for v in values if 0<v-value<=3 and values.count(v)>=2]
+            if self.stopped_at is not None and 0<self.stopped_at-value<=3:bases.append(self.stopped_at)
+            # Tenths change faster than the readings: three readings going down in small steps.
+            if self.tenths and len(after)>=3 and all(0<after[i][1]-after[i+1][1]<=.6 for i in (-3,-2)):
+                self.start(value,now);return None
+            if bases and last3.count(value)>=2:
+                self.start(value,[t for t,v in after if v==value][0])
             return None
         guess=self.remaining(now)
-        recent=[v for t,v in self.recent if now-t<=1.6]
-        # Stopped: the board kept the same value for 1.5 s while our clock kept going.
-        if same and now-same[0]>=1.5 and recent.count(value)>=max(3,len(recent)*.7) and value>=guess+.8:
-            self.stop(value);return value
+        # Stopped: the board kept showing the same second longer than a running clock can
+        # (a little over one second; with tenths, under half a second).
+        hold=.45 if value<60 and self.tenths else 1.2
+        if same and now-same[0]>=hold:
+            since=[v for t,v in self.recent if t>=same[0]]
+            if len(since)>=3 and since.count(value)>=len(since)*.7 and value>=guess+.1:
+                self.stop(value,now);return value
         last3=[v for _,v in self.recent[-3:]]
         if last3.count(value)>=2:
             # A new second seen on the board: put our clock in step (only small corrections).
             first=[t for t,v in self.recent[-3:] if v==value][0]
-            if abs(value-self.remaining(first))<=1.2 and value<self.anchor-(first-self.anchor_time)+.05:
+            if abs(value-self.remaining(first))<=1.2 and value<self.remaining(first)+.05:
                 if abs(value-self.remaining(first))>.15 or first>self.anchor_time+1.5:self.start(value,first)
         # The operator set another time: the same value far from ours for two whole seconds.
         window=[(t,v) for t,v in self.recent if now-t<=2.]
         if len(window)>=6 and now-window[0][0]>=1.8 and all(v==value for _,v in window) and abs(value-guess)>2.5:
-            self.stop(value);return value
-        if guess<=0:self.stop(0.);return 0.
+            self.stop(value,now);return value
+        if guess<=0:self.stop(0.,now);return 0.
         return None
-
 
 class GamePreview:
     """Independent low-bandwidth monitor; never delays the scoreboard reader."""

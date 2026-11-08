@@ -119,6 +119,35 @@ class ClientTests(unittest.TestCase):
         self.run_clock(feed,[(107.2,'04:56'),(107.4,'04:56'),(107.6,'04:56')])
         self.assertTrue(feed.clock.running)
 
+    def test_free_throw_stop_is_seen_quickly_and_holds(self):
+        feed=Feed(SimpleNamespace(source='Camara 2'))
+        readings=[(100,'06:00'),(100.125,'06:00')]
+        t=101.0
+        while t<104.6:
+            shown=360-math.floor(t-101+1e-9)-1;readings.append((round(t,3),f'{shown//60:02d}:{shown%60:02d}'));t+=.125
+        self.run_clock(feed,readings)
+        stopped_at=readings[-1][1]  # board stops at 104.5 showing 05:56
+        t=104.625;seen=None
+        while t<110:
+            self.run_clock(feed,[(round(t,3),stopped_at)])
+            if seen is None and not feed.clock.running:seen=t
+            t+=.125
+        self.assertIsNotNone(seen);self.assertLessEqual(seen,104.0+1.35)
+        self.assertFalse(feed.clock.running);self.assertEqual(feed.values['clock'],stopped_at)
+        self.run_clock(feed,[(110.1,'05:55'),(110.2,'05:55')])
+        self.assertTrue(feed.clock.running);self.assertEqual(feed.clock.text(110.3),'05:55')
+
+    def test_last_minute_stop_with_tenths(self):
+        feed=Feed(SimpleNamespace(source='Camara 2'))
+        readings=[];t=100.0
+        while t<102:
+            readings.append((round(t,3),f'{math.ceil((45-(t-100))*10-1e-6)/10:04.1f}'));t+=.125
+        self.run_clock(feed,readings)
+        self.assertTrue(feed.clock.running)
+        held=readings[-1][1];t=102.125
+        while t<102.7:self.run_clock(feed,[(round(t,3),held)]);t+=.125
+        self.assertFalse(feed.clock.running);self.assertEqual(feed.values['clock'],held)
+
     def test_clock_set_by_operator_is_followed(self):
         feed=Feed(SimpleNamespace(source='Camara 2'))
         readings=[(100,'05:00'),(100.2,'05:00')]
