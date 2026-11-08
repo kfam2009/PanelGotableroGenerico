@@ -65,6 +65,7 @@ a{color:var(--text)}
       <label class="inline">Color <select id="color"><option value="auto">Automático</option><option value="red">Rojo</option><option value="amber">Ámbar / amarillo</option><option value="green">Verde</option><option value="white">Blanco</option></select></label>
       <label class="inline"><input type="checkbox" id="showMask" checked> Ver LEDs detectados</label>
     </div>
+    <div class="row" style="margin-bottom:10px"><label class="inline"><input type="checkbox" id="dots"> Números de puntitos (LED de puntos)</label></div>
     <div class="row" style="margin-bottom:10px"><label class="inline">Dígitos <select id="segments"><option value="auto">Automático</option><option value="cells">Casilleros fijos (tablero LED)</option><option value="segments">LED de segmentos</option><option value="solid">Trazo continuo (pantalla)</option></select></label></div>
     <label class="inline" id="thresholdRow" style="display:block">Sensibilidad <span id="thresholdValue"></span>
       <input type="range" id="threshold" min="60" max="250" step="5"></label>
@@ -269,6 +270,7 @@ const threshold=document.getElementById('threshold'),thresholdValue=document.get
 threshold.addEventListener('input',()=>{cal.threshold=+threshold.value;thresholdValue.textContent=threshold.value;draw();});
 color.addEventListener('change',()=>{cal.color=color.value;syncInputs();draw();});
 const segments=document.getElementById('segments');segments.addEventListener('change',()=>{cal.segments=segments.value;draw();});
+const dots=document.getElementById('dots');dots.addEventListener('change',()=>{cal.dots=dots.checked;});
 document.getElementById('showMask').addEventListener('change',draw);
 
 async function post(body){
@@ -287,7 +289,7 @@ document.getElementById('reset').addEventListener('click',async()=>{
   try{const data=await post({reset:true});cal=data.calibration;syncInputs();renderGroups();draw();setStatus('Se restauró la calibración original.','ok');}
   catch(error){setStatus(error.message,'err');}
 });
-function syncInputs(){threshold.value=cal.threshold;thresholdValue.textContent=cal.threshold;color.value=cal.color;segments.value=cal.segments||'auto';document.getElementById('thresholdRow').style.display=cal.color==='auto'?'none':'block';}
+function syncInputs(){threshold.value=cal.threshold;thresholdValue.textContent=cal.threshold;color.value=cal.color;segments.value=cal.segments||'auto';dots.checked=!!cal.dots;document.getElementById('thresholdRow').style.display=cal.color==='auto'?'none':'block';}
 
 function loadFrame(){
   if(document.getElementById('freeze').checked||drag){setTimeout(loadFrame,500);return;}

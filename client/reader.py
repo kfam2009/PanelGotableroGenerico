@@ -1,10 +1,10 @@
 import json
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageFilter
 import numpy as np
 
-READER_VERSION = '2026.10.20.2'
+READER_VERSION = '2026.11.08.1'
 CALIBRATION_PATH = Path(__file__).with_name('calibration.json')
 
 # Default calibration (original 7-segment red LED board), corners TL, TR, BR, BL in a 1920x1080 frame.
@@ -32,6 +32,7 @@ THRESHOLD = 180
 CALIBRATED = False
 GROUP_QUADS = {}
 SEGMENTS = 'auto'
+DOTS = False
 SEGMENT_MODES = ('auto','segments','solid','cells')
 
 
@@ -76,14 +77,14 @@ def validate_calibration(data):
         x0,y0=int(max(0,min(xs)-mx)),int(max(0,min(ys)-my));x1,y1=int(min(1920,max(xs)+mx)),int(min(1080,max(ys)+my))
     segments=data.get('segments','auto')
     if segments not in SEGMENT_MODES:raise ValueError('Tipo de digitos invalido')
-    return {'groups':clean,'color':color,'threshold':threshold,'view':[x0,y0,x1,y1],'segments':segments}
+    return {'groups':clean,'color':color,'threshold':threshold,'view':[x0,y0,x1,y1],'segments':segments,'dots':bool(data.get('dots',False))}
 
 
 def apply_calibration(data):
-    global QUADS,GROUPS,GROUP_QUADS,VIEW,COLOR,THRESHOLD,CALIBRATED,SEGMENTS
+    global QUADS,GROUPS,GROUP_QUADS,VIEW,COLOR,THRESHOLD,CALIBRATED,SEGMENTS,DOTS
     if data is None:
         QUADS=dict(DEFAULT_QUADS);GROUPS={'clock':('m1','m2','s1','s2'),'homeScore':('h1','h2'),'awayScore':('a1','a2'),'period':('p',)}
-        VIEW=DEFAULT_VIEW;COLOR='red';THRESHOLD=180;CALIBRATED=False;SEGMENTS='auto';return
+        VIEW=DEFAULT_VIEW;COLOR='red';THRESHOLD=180;CALIBRATED=False;SEGMENTS='auto';DOTS=False;return
     data=validate_calibration(data);quads={};groups={}
     for key,group in data['groups'].items():
         names=tuple(f'{GROUP_PREFIX[key]}{i+1}' for i in range(group['digits']))
@@ -92,7 +93,7 @@ def apply_calibration(data):
         for name,cell in zip(names,split_quad(group['quad'],group['digits'])):quads[name]=cell
         groups[key]=names
     QUADS,GROUPS=quads,groups;GROUP_QUADS=data['groups']
-    VIEW=tuple(data['view']);COLOR=data['color'];THRESHOLD=data['threshold'];SEGMENTS=data['segments'];CALIBRATED=True
+    VIEW=tuple(data['view']);COLOR=data['color'];THRESHOLD=data['threshold'];SEGMENTS=data['segments'];DOTS=data['dots'];CALIBRATED=True
 
 
 def load_calibration(path=None):
@@ -276,7 +277,10 @@ def classify_shape(m):
     # Segment zones over the shape's own box: wide enough for thin LED segments and slanted fonts.
     scores={k:float(m[int(y0*h):max(int(y0*h)+1,int(y1*h)),int(x0*w):max(int(x0*w)+1,int(x1*w))].mean()) for k,(x0,y0,x1,y1) in SHAPE_ZONES.items()}
     active=''.join(k for k in sorted(scores) if scores[k]>(.35 if k=='g' else .3 if k in 'ef' else .25))
-    return PATTERNS.get(active)
+    if active in PATTERNS:return PATTERNS[active]
+    # One segment hidden (a wire of the protective mesh, a missing LED dot): accept the only digit one segment away.
+    near={digit for pattern,digit in PATTERNS.items() if len(set(pattern)^set(active))==1}
+    return near.pop() if len(near)==1 else None
 
 
 def split_columns(shape,x0,x1,tall,depth=0):
@@ -307,7 +311,7 @@ def split_columns(shape,x0,x1,tall,depth=0):
 
 def read_group(im,quad):
     """Text of one group: digits left to right, '.' for a decimal point, '?' for an unknown shape, '' if unlit."""
-    m=group_mask(warp_group(im,quad))
+    m=board_mask(warp_group(im,quad))
     if not m.any():return ''
     labels,found=components(m)
     # Short marks touching the top or bottom edge are board decorations, not digits.
@@ -401,9 +405,28 @@ def opening(m,r=2):
     return shift_all(shift_all(m,np.logical_and),np.logical_or)
 
 
+def erode(m,r):return ~dilate(~m,r)
+
+
+def dotted(m):
+    """Boards whose segments are rows of separate LED dots."""
+    _,found=components(m)
+    if len(found)<15:return False
+    sizes=sorted(c['n'] for c in found)
+    return sizes[len(sizes)//2]<45
+
+
+def board_mask(group_image,cells=False):
+    """Lit pixels of one group. Dotted LEDs are blurred first so the dots become solid segments."""
+    if DOTS:return group_mask(group_image.filter(ImageFilter.GaussianBlur(2.5)))
+    m=group_mask(group_image)
+    # Solid LEDs in fixed cells: cut the thin glow bridges to colon dots and neighbours.
+    return opening(m) if cells else m
+
+
 def read_cells(im,quad,count):
     """Fixed LED positions: the group is split in equal cells, one digit each. ' ' marks an unlit cell."""
-    m=opening(group_mask(warp_group(im,quad)));h,w=m.shape;text=''
+    m=board_mask(warp_group(im,quad),cells=True);h,w=m.shape;text=''
     # Move each border to the darkest column nearby, so it cuts between digits even if the box is a bit off.
     lo,hi=0,w
     profile=m.sum(axis=0);edges=[lo]
