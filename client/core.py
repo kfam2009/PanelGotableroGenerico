@@ -264,17 +264,20 @@ class Feed:
                     self.board_off=False;self.confirmed.clear();self.pending.clear();self.last_samples.clear()
             for key in KEYS:
                 value=raw.get(key)
-                if value is None:
-                    self.pending.pop(key,None);continue
-                prior,count=self.pending.get(key,(None,0))
+                # One unreadable frame (glare, blur) must not throw away the readings already collected.
+                if value is None:continue
+                recent=self.pending.get(key,(None,0,[]))
+                prior,count=recent[0],recent[1];history=(recent[2] if len(recent)>2 else [])[-2:]+[value]
                 count=count+1 if value==prior else 1
+                # A change is accepted when it shows up in two of the last three readings.
+                if history.count(value)>=2:count=max(count,2)
                 if key=='clock' and prior is not None:
                     elapsed=now-self.last_samples.get(key,now)
                     delta=clock_seconds(prior)-clock_seconds(value)
                     # A running clock need not repeat the same second on two screenshots.
                     if 0<=delta<=max(2,elapsed*1.7+1) and elapsed<10:count=2
                 self.last_samples[key]=now
-                self.pending[key]=(value,count)
+                self.pending[key]=(value,count,history)
                 # Previously confirmed values can refresh immediately. Changes require two frames.
                 if (value==self.values[key] and key in self.confirmed) or count>=2:
                     self.values[key]=value;self.confirmed[key]=now

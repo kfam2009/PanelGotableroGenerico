@@ -235,17 +235,33 @@ def dilate(m,r):
 
 
 def components(m):
-    h,w=m.shape;labels=np.zeros((h,w),np.int32);found=[]
-    for y0,x0 in zip(*np.nonzero(m)):
-        if labels[y0,x0]:continue
-        n=len(found)+1;labels[y0,x0]=n;stack=[(y0,x0)];ys=[];xs=[]
-        while stack:
-            y,x=stack.pop();ys.append(y);xs.append(x)
-            for dy in (-1,0,1):
-                for dx in (-1,0,1):
-                    yy,xx=y+dy,x+dx
-                    if 0<=yy<h and 0<=xx<w and m[yy,xx] and not labels[yy,xx]:labels[yy,xx]=n;stack.append((yy,xx))
-        found.append({'ids':[n],'x0':min(xs),'x1':max(xs)+1,'y0':min(ys),'y1':max(ys)+1,'n':len(ys)})
+    """8-connected shapes, labelled run by run (much faster than pixel by pixel in Python)."""
+    h,w=m.shape;labels=np.zeros((h,w),np.int32)
+    padded=np.zeros((h,w+2),np.int8);padded[:,1:-1]=m
+    diff=np.diff(padded,axis=1)
+    runs=[];parent=[]
+    def find(i):
+        while parent[i]!=i:parent[i]=parent[parent[i]];i=parent[i]
+        return i
+    previous=[]
+    for y in range(h):
+        starts=np.nonzero(diff[y]==1)[0];stops=np.nonzero(diff[y]==-1)[0];current=[]
+        for x0,x1 in zip(starts.tolist(),stops.tolist()):
+            index=len(runs);runs.append((y,x0,x1));parent.append(index);current.append(index)
+            for j in previous:
+                _,a,b=runs[j]
+                if a<=x1 and x0<=b:  # touching, diagonals included
+                    ri,rj=find(index),find(j)
+                    if ri!=rj:parent[max(ri,rj)]=min(ri,rj)
+        previous=current
+    found=[];ids={}
+    for index,(y,x0,x1) in enumerate(runs):
+        root=find(index)
+        if root not in ids:
+            ids[root]=len(found)+1
+            found.append({'ids':[ids[root]],'x0':x0,'x1':x1,'y0':y,'y1':y+1,'n':0})
+        c=found[ids[root]-1];labels[y,x0:x1]=ids[root]
+        c['x0']=min(c['x0'],x0);c['x1']=max(c['x1'],x1);c['y1']=y+1;c['n']+=x1-x0
     return labels,found
 
 

@@ -59,6 +59,15 @@ class ClientTests(unittest.TestCase):
             with patch('core.read_values',return_value=({'clock':value},{})):feed.process(frame,when)
         self.assertEqual(feed.values['clock'],'58.9')
 
+    def test_score_change_survives_one_bad_frame(self):
+        feed=Feed(SimpleNamespace(source='Camara 2'));frame=Image.new('RGB',(1920,1080))
+        for when,value in [(100,'38'),(101,'38'),(102,'40'),(103,None),(104,'40')]:
+            with patch('core.read_values',return_value=({'awayScore':value} if value else {},{})):feed.process(frame,when)
+        self.assertEqual(feed.values['awayScore'],'40')
+        for when,value in [(105,'42'),(106,'48'),(107,'42')]:
+            with patch('core.read_values',return_value=({'awayScore':value},{})):feed.process(frame,when)
+        self.assertEqual(feed.values['awayScore'],'42')
+
     def test_unconfirmed_score_change_is_ignored(self):
         feed=Feed(SimpleNamespace(source='Camara 2'));frame=Image.new('RGB',(1920,1080))
         for when,value in [(100,'38'),(101,'38'),(102,'18'),(103,'38')]:
