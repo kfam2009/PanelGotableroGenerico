@@ -246,7 +246,9 @@ class Feed:
         crop=getattr(self.args,'board_crop',None) or (reader_module.VIEW if reader_module.CALIBRATED else None)
         view=im.crop(tuple(crop)) if crop else im.resize((640,360))
         self.frame=im
-        out=io.BytesIO();view.save(out,format='PNG')
+        # Small JPEG preview: a full-size PNG took most of the time of each reading on slower PCs.
+        if view.width>640:view=view.resize((640,max(1,round(view.height*640/view.width))))
+        out=io.BytesIO();view.convert('RGB').save(out,format='JPEG',quality=80)
         with self.lock:
             self.board=out.getvalue();self.connected=True;self.captured=now;self.digits=digits
             self.error='Sin capturas recientes del tablero'

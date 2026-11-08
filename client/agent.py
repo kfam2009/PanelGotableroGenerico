@@ -249,7 +249,7 @@ def local_server(feed,uplink,game,port,license=None,bind='127.0.0.1',remote=None
                 out=io.BytesIO();frame.save(out,format='JPEG',quality=88);data=out.getvalue();kind='image/jpeg'
             elif route=='/board.png':
                 with feed.lock:data=feed.board
-                kind='image/png'
+                kind='image/jpeg'
             elif route=='/game.jpg' and hasattr(game,'image'):
                 with game.lock:data=game.image
                 kind='image/jpeg'
