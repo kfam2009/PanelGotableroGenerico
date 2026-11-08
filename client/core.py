@@ -260,7 +260,7 @@ class Feed:
         self.last_samples={};self.digits={};self.frame=None
         self.board_off=False;self.dark_since=None
         self.gate=None;self.locked=False
-        self.manual={}
+        self.manual={};self.manual_base={}
         self.clock=ClockTracker()
 
     def held(self):
@@ -302,7 +302,7 @@ class Feed:
             else:
                 value=str(value).strip()
                 if not value or len(value)>8:raise ValueError('Valor invalido')
-                self.manual[key]=value
+                self.manual[key]=value;self.manual_base[key]=self.values.get(key)
             self.revision+=1;self.lock.notify_all()
 
     def process(self,im,now=None):
@@ -371,7 +371,18 @@ class Feed:
                     if key=='clock' and not self.clock.running:
                         try:self.clock.stopped_at=clock_seconds(value)
                         except ValueError:pass
+            self.release_manual()
             self.revision+=1;self.lock.notify_all()
+
+    def release_manual(self):
+        """A corrected score or period goes back to automatic once the board reading catches up:
+        the reading equals the typed value, or moves on from the misread to a value at least as high."""
+        for key in ('homeScore','awayScore','period'):
+            if key not in self.manual or key not in self.confirmed:continue
+            typed,read,base=self.manual[key],self.values[key],self.manual_base.get(key)
+            try:caught=read==typed or (read!=base and int(read)>=int(typed))
+            except ValueError:caught=False
+            if caught:self.manual.pop(key,None);self.manual_base.pop(key,None)
 
     def run(self):
         stream=getattr(self.args,'board_stream',None)

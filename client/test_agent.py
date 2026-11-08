@@ -148,6 +148,17 @@ class ClientTests(unittest.TestCase):
         while t<102.7:self.run_clock(feed,[(round(t,3),held)]);t+=.125
         self.assertFalse(feed.clock.running);self.assertEqual(feed.values['clock'],held)
 
+    def test_corrected_score_returns_to_automatic(self):
+        feed=Feed(SimpleNamespace(source='Camara 2'));frame=Image.new('RGB',(1920,1080))
+        def read(when,value):
+            with patch('core.read_values',return_value=({'awayScore':value},{})):feed.process(frame,when)
+        for i in range(4):read(100+i*.1,'6')
+        feed.set_manual('awayScore','16');self.assertEqual(feed.snapshot()['awayScore'],'16')
+        for i in range(4):read(101+i*.1,'6')
+        self.assertEqual(feed.snapshot()['awayScore'],'16')
+        for i in range(6):read(102+i*.1,'18')
+        self.assertEqual(feed.snapshot()['awayScore'],'18');self.assertEqual(feed.manual,{})
+
     def test_clock_set_by_operator_is_followed(self):
         feed=Feed(SimpleNamespace(source='Camara 2'))
         readings=[(100,'05:00'),(100.2,'05:00')]
